@@ -34,8 +34,15 @@ pub fn point_addition_gadget(
         // Try to move this to additions since they are free
         let minus_a = cs.multiply(LC::from(a), LC::from(A)).2;
         let minus_b = cs.multiply(LC::from(a), LC::from(B)).2;
-        minus_a + minus_b + E12;
+        minus_a + minus_b + E12
     };
-    //let F =
-    unimplemented!()
+    let F = D - C;
+    let G = D + C;
+    let H = B + A;
+    (
+        Variable::from(cs.multiply(E.clone(), F.clone()).2),
+        Variable::from(cs.multiply(G.clone(), H.clone()).2),
+        Variable::from(cs.multiply(F, G).2),
+        Variable::from(cs.multiply(E, H).2),
+    )
 }
