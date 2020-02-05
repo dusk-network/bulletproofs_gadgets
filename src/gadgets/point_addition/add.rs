@@ -1,30 +1,66 @@
-use bulletproofs::r1cs::{ConstraintSystem, LinearCombination as LC, Variable};
+use crate::helpers::{fq_as_scalar, n_point_coords_to_LC};
+use bulletproofs::r1cs::{
+    ConstraintSystem, LinearCombination as LC, Prover, R1CSError, R1CSProof, Variable,
+};
+use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::scalar::Scalar;
+use merlin::Transcript;
+use rand::thread_rng;
 use zerocaf::field::FieldElement;
-use zerocaf::ristretto::RistrettoPoint;
+use zerocaf::ristretto::{CompressedRistretto, RistrettoPoint};
 
-pub fn fq_as_scalar(elem: FieldElement) -> Scalar {
-    Scalar::from_bytes_mod_order(elem.to_bytes())
+// Prover's scope
+pub fn point_addition_proof(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    p1: RistrettoPoint,
+    p2: RistrettoPoint,
+    a: FieldElement,
+    d: FieldElement,
+) -> Result<R1CSProof, R1CSError> {
+    let mut transcript = Transcript::new(b"R1CS Point Add Gadget");
+
+    // Create the prover->
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+
+    // Commit high-level variables
+    // Get LCs for P1, P2 and P1 + P2
+    let mut lcs = n_point_coords_to_LC(&[p1, p2]);
+    // Get a and d as LC
+    lcs.push((
+        fq_as_scalar(a).into(),
+        fq_as_scalar(d).into(),
+        fq_as_scalar(d).into(),
+        fq_as_scalar(d).into(),
+    ));
+
+    // Build the CS
+    // XXX: We should get the z and t and verify that it satisfies the curve eq
+    // in another gadget.
+    let (x, y, _, _) = point_addition_gadget(
+        &mut prover,
+        lcs[0].clone(),
+        lcs[1].clone(),
+        lcs[2].1.clone(),
+        lcs[2].0.clone(),
+    );
+    point_addition_constrain_gadget(&mut prover, &(p1, p2), &(x.into(), y.into()));
+
+    // Build the proof
+    let proof = prover.prove(bp_gens)?;
+
+    Ok(proof)
 }
 
-pub fn commit_point_coords(
+/// Constrains the logic of the addition between two points of
+/// a twisted edwards elliptic curve in extended coordinates
+/// making sure that P1 + P2 = P3.
+pub fn point_addition_gadget(
     cs: &mut ConstraintSystem,
-    point: RistrettoPoint,
-) -> (Variable, Variable, Variable, Variable) {
-    let p_x = cs.allocate(Some(fq_as_scalar(point.0.X))).unwrap();
-    let p_y = cs.allocate(Some(fq_as_scalar(point.0.Y))).unwrap();
-    let p_z = cs.allocate(Some(fq_as_scalar(point.0.Z))).unwrap();
-    let p_t = cs.allocate(Some(fq_as_scalar(point.0.T))).unwrap();
-
-    (p_x, p_y, p_z, p_t)
-}
-
-pub fn add_point_addition_gadget(
-    cs: &mut ConstraintSystem,
-    (p1_x, p1_y, p1_z, p1_t): (Variable, Variable, Variable, Variable),
-    (p2_x, p2_y, p2_z, p2_t): (Variable, Variable, Variable, Variable),
-    d: Variable,
-    a: Variable,
+    (p1_x, p1_y, p1_z, p1_t): (LC, LC, LC, LC),
+    (p2_x, p2_y, p2_z, p2_t): (LC, LC, LC, LC),
+    d: LC,
+    a: LC,
 ) -> (Variable, Variable, Variable, Variable) {
     // Point addition impl
     // A = p1_x * p2_x
@@ -36,100 +72,62 @@ pub fn add_point_addition_gadget(
     // G = D + C
     // H = B + A
     // X3 = E * F , Y3 = G * H, Z3 = F * G, T3 = E * H
-    let (_, _, A) = cs.multiply(LC::from(p1_x), LC::from(p2_x));
-    let (_, _, B) = cs.multiply(LC::from(p1_y), LC::from(p2_y));
+    let (_, _, A) = cs.multiply(p1_x.clone(), p2_x.clone());
+    let (_, _, B) = cs.multiply(p1_y.clone(), p2_y.clone());
     let C = {
-        let (_, _, pt) = cs.multiply(LC::from(p1_t), LC::from(p2_t));
-        cs.multiply(LC::from(pt), LC::from(d)).2
+        let (_, _, pt) = cs.multiply(p1_t, p2_t);
+        cs.multiply(pt.into(), d).2
     };
-    let (_, _, D) = cs.multiply(LC::from(p1_z), LC::from(p2_z));
+    let (_, _, D) = cs.multiply(p1_z, p2_z);
     let E = {
         let E1 = p1_x + p1_y;
         let E2 = p2_x + p2_y;
         let E12 = cs.multiply(E1, E2).2;
         // Try to move this to additions since they are free
-        let minus_a = cs.multiply(LC::from(a), LC::from(A)).2;
-        let minus_b = cs.multiply(LC::from(a), LC::from(B)).2;
+        let minus_a = cs.multiply(a.clone(), A.into()).2;
+        let minus_b = cs.multiply(a, B.into()).2;
         minus_a + minus_b + E12
     };
     let F = D - C;
     let G = D + C;
     let H = B + A;
+    // Circuit Point addition result.
     (
-        Variable::from(cs.multiply(E.clone(), F.clone()).2),
-        Variable::from(cs.multiply(G.clone(), H.clone()).2),
-        Variable::from(cs.multiply(F, G).2),
-        Variable::from(cs.multiply(E, H).2),
+        cs.multiply(E.clone(), F.clone()).2,
+        cs.multiply(G.clone(), H.clone()).2,
+        cs.multiply(F, G).2,
+        cs.multiply(E, H).2,
     )
 }
 
+pub fn point_addition_constrain_gadget(
+    cs: &mut ConstraintSystem,
+    (p1, p2): &(RistrettoPoint, RistrettoPoint),
+    res_point: &(LC, LC),
+) {
+    let res_p_coords = n_point_coords_to_LC(&[p1 + p2]);
+    // As specified on the Ristretto protocol docs:
+    // https://ristretto.group/formulas/equality.html
+    // and we are on the twisted case, we compare
+    // `X1*Y2 == Y1*X2 | X1*X2 == Y1*Y2`.
+    let x1y2 = cs
+        .multiply(res_point.0.clone(), res_p_coords[0].1.clone())
+        .2;
+    let y1x2 = cs
+        .multiply(res_point.1.clone(), res_p_coords[0].0.clone())
+        .2;
+    // Add the constrain
+    cs.constrain((x1y2 - y1x2).into());
+}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bulletproofs::r1cs::Prover;
     use bulletproofs::{BulletproofGens, PedersenGens};
-    use merlin::Transcript;
-    use rand::thread_rng;
     use zerocaf::edwards::{AffinePoint, EdwardsPoint};
     use zerocaf::field::FieldElement as Fq;
 
     #[test]
     fn point_addition_gadget() {
-        let mut rng = thread_rng();
-
-        let gens = PedersenGens::default();
-        let mut transcript = Transcript::new(b"Testing");
-
-        let mut prover = Prover::new(&gens, &mut transcript);
-
-        let p1 = RistrettoPoint::new_random_point(&mut rng);
-        let p1_commits = commit_point_coords(&mut prover, p1);
-        let p2 = RistrettoPoint::new_random_point(&mut rng);
-        let p2_commits = commit_point_coords(&mut prover, p2);
-        let p_res = p1 + p2;
-        let a = zerocaf::constants::EDWARDS_A;
-        let a_comm = prover.allocate(Some(fq_as_scalar(a))).unwrap();
-        let d = zerocaf::constants::EDWARDS_D;
-        let d_comm = prover.allocate(Some(fq_as_scalar(d))).unwrap();
-
-        let (X, Y, Z, T) =
-            add_point_addition_gadget(&mut prover, p1_commits, p2_commits, d_comm, a_comm);
-        let (X_real, Y_real, Z_real, T_real) = commit_point_coords(&mut prover, p_res);
-        // As specified on the Ristretto protocol docs:
-        // https://ristretto.group/formulas/equality.html
-        // and we are on the twisted case, we compare
-        // `X1*Y2 == Y1*X2 | X1*X2 == Y1*Y2`.
-        let (_, _, x1_y2) = prover.multiply(LC::from(X), LC::from(Y_real));
-        let (_, _, y1_x2) = prover.multiply(LC::from(Y), LC::from(X_real));
-        let constraint = x1_y2 - y1_x2;
-        prover.constrain(LC::from(constraint));
-        let prove = prover.prove(&BulletproofGens::new(32, 1)).unwrap();
-
-        let mut transcript = Transcript::new(b"Testing");
-        let mut verif = bulletproofs::r1cs::Verifier::new(&mut transcript);
-        let p1 = RistrettoPoint::new_random_point(&mut rng);
-        let p1_commits = commit_point_coords(&mut verif, p1);
-        let p2 = RistrettoPoint::new_random_point(&mut rng);
-        let p2_commits = commit_point_coords(&mut verif, p2);
-        let p_res = p1 + p2;
-        let a = zerocaf::constants::EDWARDS_A;
-        let a_comm = verif.allocate(Some(fq_as_scalar(a))).unwrap();
-        let d = zerocaf::constants::EDWARDS_D;
-        let d_comm = verif.allocate(Some(fq_as_scalar(d))).unwrap();
-
-        let (X, Y, Z, T) =
-            add_point_addition_gadget(&mut verif, p1_commits, p2_commits, d_comm, a_comm);
-        let (X_real, Y_real, Z_real, T_real) = commit_point_coords(&mut verif, p_res);
-        // As specified on the Ristretto protocol docs:
-        // https://ristretto.group/formulas/equality.html
-        // and we are on the twisted case, we compare
-        // `X1*Y2 == Y1*X2 | X1*X2 == Y1*Y2`.
-        let (_, _, x1_y2) = verif.multiply(LC::from(X), LC::from(Y_real));
-        let (_, _, y1_x2) = verif.multiply(LC::from(Y), LC::from(X_real));
-        let constraint = x1_y2 - y1_x2;
-        verif.constrain(LC::from(constraint));
-        assert!(verif
-            .verify(&prove, &gens, &BulletproofGens::new(32, 1), &mut rng)
-            .is_ok())
+        unimplemented!()
     }
 }
