@@ -1,6 +1,6 @@
 use crate::helpers::{fq_as_scalar, n_point_coords_to_LC};
 use bulletproofs::r1cs::{
-    ConstraintSystem, LinearCombination as LC, Prover, R1CSError, R1CSProof, Variable,
+    ConstraintSystem, LinearCombination as LC, Prover, R1CSError, R1CSProof, Variable, Verifier,
 };
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::scalar::Scalar;
@@ -9,7 +9,8 @@ use rand::thread_rng;
 use zerocaf::field::FieldElement;
 use zerocaf::ristretto::{CompressedRistretto, RistrettoPoint};
 
-// Prover's scope
+/// Builds a proof which holds the constraints related to
+/// the point addition of two publicly known RistrettoPoints.
 pub fn point_addition_proof(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
@@ -52,9 +53,53 @@ pub fn point_addition_proof(
     Ok(proof)
 }
 
-/// Constrains the logic of the addition between two points of
-/// a twisted edwards elliptic curve in extended coordinates
-/// making sure that P1 + P2 = P3.
+/// Verifies a proof which holds the constraints related to
+/// the point addition of two publicly known RistrettoPoints.
+pub fn point_addition_verify(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    p1: RistrettoPoint,
+    p2: RistrettoPoint,
+    a: FieldElement,
+    d: FieldElement,
+    proof: R1CSProof,
+) -> Result<(), R1CSError> {
+    let mut transcript = Transcript::new(b"R1CS Point Add Gadget");
+
+    // Create the verifier
+    let mut verifier = Verifier::new(&mut transcript);
+
+    // Commit high-level variables
+    // Get LCs for P1, P2 and P1 + P2
+    let mut lcs = n_point_coords_to_LC(&[p1, p2]);
+    // Get a and d as LC
+    lcs.push((
+        fq_as_scalar(a).into(),
+        fq_as_scalar(d).into(),
+        fq_as_scalar(d).into(),
+        fq_as_scalar(d).into(),
+    ));
+
+    // Build the CS
+    // XXX: We should get the z and t and verify that it satisfies the curve eq
+    // in another gadget.
+    let (x, y, _, _) = point_addition_gadget(
+        &mut verifier,
+        lcs[0].clone(),
+        lcs[1].clone(),
+        lcs[2].1.clone(),
+        lcs[2].0.clone(),
+    );
+    point_addition_constrain_gadget(&mut verifier, &(p1, p2), &(x.into(), y.into()));
+
+    // Verify the proof
+    verifier
+        .verify(&proof, &pc_gens, &bp_gens, &mut thread_rng())
+        .map_err(|_| R1CSError::VerificationError)
+}
+
+/// Builds and adds to the CS the circuit that corresponds to the
+/// addition of two Twisted Edwards points in Extended Coordinates.
 pub fn point_addition_gadget(
     cs: &mut ConstraintSystem,
     (p1_x, p1_y, p1_z, p1_t): (LC, LC, LC, LC),
@@ -100,6 +145,9 @@ pub fn point_addition_gadget(
     )
 }
 
+/// Constrains the logic of the addition between two points of
+/// a twisted edwards elliptic curve in extended coordinates
+/// making sure that P1 + P2 = P3.
 pub fn point_addition_constrain_gadget(
     cs: &mut ConstraintSystem,
     (p1, p2): &(RistrettoPoint, RistrettoPoint),
@@ -119,15 +167,11 @@ pub fn point_addition_constrain_gadget(
     // Add the constrain
     cs.constrain((x1y2 - y1x2).into());
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use bulletproofs::{BulletproofGens, PedersenGens};
     use zerocaf::edwards::{AffinePoint, EdwardsPoint};
     use zerocaf::field::FieldElement as Fq;
-
-    #[test]
-    fn point_addition_gadget() {
-        unimplemented!()
-    }
 }
