@@ -16,6 +16,7 @@ pub fn point_addition_proof(
     bp_gens: &BulletproofGens,
     p1: RistrettoPoint,
     p2: RistrettoPoint,
+    p3: RistrettoPoint,
     a: FieldElement,
     d: FieldElement,
 ) -> Result<R1CSProof, R1CSError> {
@@ -45,7 +46,7 @@ pub fn point_addition_proof(
         lcs[2].1.clone(),
         lcs[2].0.clone(),
     );
-    point_addition_constrain_gadget(&mut prover, &(p1, p2), &(x.into(), y.into()));
+    point_addition_constrain_gadget(&mut prover, &p3, &(x.into(), y.into()));
 
     // Build the proof
     let proof = prover.prove(bp_gens)?;
@@ -60,6 +61,7 @@ pub fn point_addition_verify(
     bp_gens: &BulletproofGens,
     p1: RistrettoPoint,
     p2: RistrettoPoint,
+    p3: RistrettoPoint,
     a: FieldElement,
     d: FieldElement,
     proof: R1CSProof,
@@ -70,7 +72,7 @@ pub fn point_addition_verify(
     let mut verifier = Verifier::new(&mut transcript);
 
     // Commit high-level variables
-    // Get LCs for P1, P2 and P1 + P2
+    // Get LCs for P1, P2 and P1 + P2 = P3
     let mut lcs = n_point_coords_to_LC(&[p1, p2]);
     // Get a and d as LC
     lcs.push((
@@ -90,7 +92,7 @@ pub fn point_addition_verify(
         lcs[2].1.clone(),
         lcs[2].0.clone(),
     );
-    point_addition_constrain_gadget(&mut verifier, &(p1, p2), &(x.into(), y.into()));
+    point_addition_constrain_gadget(&mut verifier, &p3, &(x.into(), y.into()));
 
     // Verify the proof
     verifier
@@ -150,10 +152,10 @@ pub fn point_addition_gadget(
 /// making sure that P1 + P2 = P3.
 pub fn point_addition_constrain_gadget(
     cs: &mut ConstraintSystem,
-    (p1, p2): &(RistrettoPoint, RistrettoPoint),
+    p_add: &RistrettoPoint,
     res_point: &(LC, LC),
 ) {
-    let res_p_coords = n_point_coords_to_LC(&[p1 + p2]);
+    let res_p_coords = n_point_coords_to_LC(&[*p_add]);
     // As specified on the Ristretto protocol docs:
     // https://ristretto.group/formulas/equality.html
     // and we are on the twisted case, we compare
@@ -168,10 +170,48 @@ pub fn point_addition_constrain_gadget(
     cs.constrain((x1y2 - y1x2).into());
 }
 
+fn point_addition_roundtrip_helper(points: &[RistrettoPoint]) -> Result<(), R1CSError> {
+    // Common
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(32, 1);
+
+    let proof = point_addition_proof(
+        &pc_gens,
+        &bp_gens,
+        points[0],
+        points[1],
+        points[2],
+        zerocaf::constants::EDWARDS_A,
+        zerocaf::constants::EDWARDS_D,
+    )?;
+
+    point_addition_verify(
+        &pc_gens,
+        &bp_gens,
+        points[0],
+        points[1],
+        points[2],
+        zerocaf::constants::EDWARDS_A,
+        zerocaf::constants::EDWARDS_D,
+        proof,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bulletproofs::{BulletproofGens, PedersenGens};
-    use zerocaf::edwards::{AffinePoint, EdwardsPoint};
-    use zerocaf::field::FieldElement as Fq;
+
+    #[test]
+    fn point_addition_prove_verif() {
+        let p1 = RistrettoPoint::new_random_point(&mut thread_rng());
+        let p2 = RistrettoPoint::new_random_point(&mut thread_rng());
+        let p3 = p1 + p2;
+        use zerocaf::traits::ops::Double;
+        let p4 = p1.double();
+
+        // P1 + P2 = P3
+        assert!(point_addition_roundtrip_helper(&[p1, p2, p3]).is_ok());
+        // P1 + P2 != P4
+        assert!(point_addition_roundtrip_helper(&[p1, p2, p4]).is_err());
+    }
 }
