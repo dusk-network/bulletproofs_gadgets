@@ -104,7 +104,30 @@ mod tests {
         let constraint = x1_y2 - y1_x2;
         prover.constrain(LC::from(constraint));
         let prove = prover.prove(&BulletproofGens::new(32, 1)).unwrap();
-        let verif = bulletproofs::r1cs::Verifier::new(&mut transcript);
+
+        let mut transcript = Transcript::new(b"Testing");
+        let mut verif = bulletproofs::r1cs::Verifier::new(&mut transcript);
+        let p1 = RistrettoPoint::new_random_point(&mut rng);
+        let p1_commits = commit_point_coords(&mut verif, p1);
+        let p2 = RistrettoPoint::new_random_point(&mut rng);
+        let p2_commits = commit_point_coords(&mut verif, p2);
+        let p_res = p1 + p2;
+        let a = zerocaf::constants::EDWARDS_A;
+        let a_comm = verif.allocate(Some(fq_as_scalar(a))).unwrap();
+        let d = zerocaf::constants::EDWARDS_D;
+        let d_comm = verif.allocate(Some(fq_as_scalar(d))).unwrap();
+
+        let (X, Y, Z, T) =
+            add_point_addition_gadget(&mut verif, p1_commits, p2_commits, d_comm, a_comm);
+        let (X_real, Y_real, Z_real, T_real) = commit_point_coords(&mut verif, p_res);
+        // As specified on the Ristretto protocol docs:
+        // https://ristretto.group/formulas/equality.html
+        // and we are on the twisted case, we compare
+        // `X1*Y2 == Y1*X2 | X1*X2 == Y1*Y2`.
+        let (_, _, x1_y2) = verif.multiply(LC::from(X), LC::from(Y_real));
+        let (_, _, y1_x2) = verif.multiply(LC::from(Y), LC::from(X_real));
+        let constraint = x1_y2 - y1_x2;
+        verif.constrain(LC::from(constraint));
         assert!(verif
             .verify(&prove, &gens, &BulletproofGens::new(32, 1), &mut rng)
             .is_ok())
