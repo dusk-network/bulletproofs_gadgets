@@ -25,7 +25,7 @@ pub fn point_doubling_proof(
     let mut prover = Prover::new(pc_gens, &mut transcript);
 
     // Commit high-level variables
-    // Get LCs for P1, P2 and P1 + P2
+    // Get LCs for P1 and 2*P1 => P2
     let mut lcs = n_point_coords_to_LC(&[p1, p2]);
     // Get a and d as LC
     lcs.push((
@@ -38,7 +38,17 @@ pub fn point_doubling_proof(
     // Build the CS
     // XXX: We should get the z and t and verify that it satisfies the curve eq
     // in another gadget.
-    unimplemented!()
+    let (x, y, _, _) = point_doubling_gadget(
+        &mut prover,
+        lcs[0].clone(),
+        lcs[2].1.clone(),
+        lcs[2].0.clone(),
+    );
+    point_doubling_constrain_gadget(&mut prover, lcs[1].clone(), (x.into(), y.into()));
+
+    // Build the proof
+    let proof = prover.prove(bp_gens)?;
+    Ok(proof)
 }
 
 /// Verifies a proof which holds the constraints related to
@@ -106,20 +116,15 @@ pub fn point_doubling_gadget(
 /// making sure that P1 + P2 = P3.
 pub fn point_doubling_constrain_gadget(
     cs: &mut ConstraintSystem,
-    p_doubled: &RistrettoPoint,
-    res_point: &(LC, LC),
+    res_p_coords: (LC, LC, LC, LC),
+    res_point: (LC, LC),
 ) {
-    let res_p_coords = n_point_coords_to_LC(&[*p_doubled]);
     // As specified on the Ristretto protocol docs:
     // https://ristretto.group/formulas/equality.html
     // and we are on the twisted case, we compare
     // `X1*Y2 == Y1*X2 | X1*X2 == Y1*Y2`.
-    let x1y2 = cs
-        .multiply(res_point.0.clone(), res_p_coords[0].1.clone())
-        .2;
-    let y1x2 = cs
-        .multiply(res_point.1.clone(), res_p_coords[0].0.clone())
-        .2;
+    let x1y2 = cs.multiply(res_point.0, res_p_coords.1).2;
+    let y1x2 = cs.multiply(res_point.1, res_p_coords.0).2;
     // Add the constrain
     cs.constrain((x1y2 - y1x2).into());
 }
