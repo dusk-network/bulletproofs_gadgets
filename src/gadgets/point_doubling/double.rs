@@ -106,10 +106,22 @@ pub fn point_doubling_gadget(
 /// making sure that P1 + P2 = P3.
 pub fn point_doubling_constrain_gadget(
     cs: &mut ConstraintSystem,
-    p_add: &RistrettoPoint,
+    p_doubled: &RistrettoPoint,
     res_point: &(LC, LC),
 ) {
-    unimplemented!()
+    let res_p_coords = n_point_coords_to_LC(&[*p_doubled]);
+    // As specified on the Ristretto protocol docs:
+    // https://ristretto.group/formulas/equality.html
+    // and we are on the twisted case, we compare
+    // `X1*Y2 == Y1*X2 | X1*X2 == Y1*Y2`.
+    let x1y2 = cs
+        .multiply(res_point.0.clone(), res_p_coords[0].1.clone())
+        .2;
+    let y1x2 = cs
+        .multiply(res_point.1.clone(), res_p_coords[0].0.clone())
+        .2;
+    // Add the constrain
+    cs.constrain((x1y2 - y1x2).into());
 }
 
 fn point_doubling_roundtrip_helper(points: &[RistrettoPoint]) -> Result<(), R1CSError> {
