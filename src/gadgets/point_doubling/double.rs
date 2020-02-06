@@ -156,10 +156,39 @@ fn point_doubling_roundtrip_helper(points: &[RistrettoPoint]) -> Result<(), R1CS
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(32, 1);
 
-    unimplemented!()
+    let proof = point_doubling_proof(
+        &pc_gens,
+        &bp_gens,
+        points[0],
+        points[1],
+        zerocaf::constants::EDWARDS_A,
+        zerocaf::constants::EDWARDS_D,
+    )?;
+
+    point_doubling_verify(
+        &pc_gens,
+        &bp_gens,
+        points[0],
+        points[1],
+        zerocaf::constants::EDWARDS_A,
+        zerocaf::constants::EDWARDS_D,
+        proof,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zerocaf::traits::ops::Double;
+    #[test]
+    fn point_doubling_prove_verif() {
+        let p1 = RistrettoPoint::new_random_point(&mut thread_rng());
+        let p2 = p1.double();
+        let p3 = p2.double();
+
+        // 2 * P1 = P2
+        assert!(point_doubling_roundtrip_helper(&[p1, p2]).is_ok());
+        // 2 * P1 != P3
+        assert!(point_doubling_roundtrip_helper(&[p1, p3]).is_err());
+    }
 }
