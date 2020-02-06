@@ -67,7 +67,29 @@ pub fn point_doubling_verify(
     // Create the verifier
     let mut verifier = Verifier::new(&mut transcript);
 
-    unimplemented!()
+    // Commit high-level variables
+    // Get LCs for P1 and 2*P1 => P2
+    let mut lcs = n_point_coords_to_LC(&[p1, p2]);
+    // Get a and d as LC
+    lcs.push((
+        fq_as_scalar(a).into(),
+        fq_as_scalar(d).into(),
+        fq_as_scalar(d).into(),
+        fq_as_scalar(d).into(),
+    ));
+
+    // Build the CS
+    // XXX: We should get the z and t and verify that it satisfies the curve eq
+    // in another gadget.
+    let (x, y, _, _) = point_doubling_gadget(
+        &mut verifier,
+        lcs[0].clone(),
+        lcs[2].1.clone(),
+        lcs[2].0.clone(),
+    );
+    point_doubling_constrain_gadget(&mut verifier, lcs[1].clone(), (x.into(), y.into()));
+
+    verifier.verify(&proof, &pc_gens, &bp_gens, &mut thread_rng())
 }
 
 /// Builds and adds to the CS the circuit that corresponds to the
