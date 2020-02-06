@@ -69,14 +69,42 @@ pub fn point_doubling_gadget(
     a: LC,
 ) -> (Variable, Variable, Variable, Variable) {
     // Point doubling impl
-    // A =
-    unimplemented!()
+    // A = p1_x²
+    // B = p1_y²
+    // C = 2*p1_z²
+    // D = a*A
+    // E = (p1_x + p1_y)² - A - B
+    // G = D + B
+    // F = G - C
+    // H = D - B
+    // X3 = E * F,  Y3 = G * H, Z3 = F * G, T3 = E * H
+    let A = cs.multiply(p1_x.clone(), p1_x.clone()).2;
+    let B = cs.multiply(p1_y.clone(), p1_y.clone()).2;
+    let C = {
+        let p1_z_sq = cs.multiply(p1_z.clone(), p1_z).2;
+        cs.multiply(Scalar::from(2u8).into(), p1_z_sq.into()).2
+    };
+    let D = cs.multiply(a, A.into()).2;
+    let E = {
+        let p1xy_sq = cs.multiply(p1_x.clone() + p1_y.clone(), p1_x + p1_y).2;
+        p1xy_sq - A - B
+    };
+    let G = D + B;
+    let F = G.clone() - C;
+    let H = D - B;
+
+    (
+        cs.multiply(E.clone(), F.clone()).2,
+        cs.multiply(G.clone(), H.clone()).2,
+        cs.multiply(F, G).2,
+        cs.multiply(E, H).2,
+    )
 }
 
-/// Constrains the logic of the addition between two points of
+/// Constrains the logic of the doubling between two points of
 /// a twisted edwards elliptic curve in extended coordinates
 /// making sure that P1 + P2 = P3.
-pub fn point_addition_constrain_gadget(
+pub fn point_doubling_constrain_gadget(
     cs: &mut ConstraintSystem,
     p_add: &RistrettoPoint,
     res_point: &(LC, LC),
@@ -84,7 +112,7 @@ pub fn point_addition_constrain_gadget(
     unimplemented!()
 }
 
-fn point_addition_roundtrip_helper(points: &[RistrettoPoint]) -> Result<(), R1CSError> {
+fn point_doubling_roundtrip_helper(points: &[RistrettoPoint]) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(32, 1);
