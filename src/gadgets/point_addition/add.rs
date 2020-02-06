@@ -3,11 +3,10 @@ use bulletproofs::r1cs::{
     ConstraintSystem, LinearCombination as LC, Prover, R1CSError, R1CSProof, Variable, Verifier,
 };
 use bulletproofs::{BulletproofGens, PedersenGens};
-use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
 use rand::thread_rng;
 use zerocaf::field::FieldElement;
-use zerocaf::ristretto::{CompressedRistretto, RistrettoPoint};
+use zerocaf::ristretto::RistrettoPoint;
 
 /// Builds a proof which holds the constraints related to
 /// the point addition of two publicly known RistrettoPoints.
