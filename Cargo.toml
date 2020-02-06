@@ -8,6 +8,9 @@ edition = "2018"
 
 [dependencies]
 zerocaf = {git = "https://github.com/dusk-network/dusk-zerocaf", branch = "master"}
+merlin = "2.0.0"
+curve25519-dalek = "2.0.0"
+rand = "0.7.3"
 
 [dependencies.bulletproofs]
 git = "https://github.com/dusk-network/bulletproofs"
