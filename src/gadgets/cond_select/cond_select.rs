@@ -15,15 +15,3 @@ pub fn conditional_select_gadget(
 ) -> (Vec<Variable>, bool) {
     unimplemented!()
 }
-
-/// Adds a the classical boolean constrain `(1 - a) * a = 0` into the
-/// CS.
-pub fn binary_constrain(cs: &mut ConstraintSystem, bit: Variable) {
-    let one: LC = Scalar::one().into();
-    // `1 - a`
-    let one_min_bit = one - bit;
-    // `(1 - a) * a`
-    let (_, _, res) = cs.multiply(one_min_bit.into(), bit.into());
-    // Add the constrain `res = 0`
-    cs.constrain(res.into())
-}
