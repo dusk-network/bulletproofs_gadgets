@@ -10,26 +10,32 @@ use rand::thread_rng;
 use zerocaf::field::FieldElement;
 use zerocaf::ristretto::RistrettoPoint;
 
-/// Ensures that the value is 0 or 1 and then outputs true if the
-/// variable was equal to 0 and false if it was to 1.
-pub fn conditional_select_gadget(cs: &mut ConstraintSystem, bit: Variable) -> bool {
+/// Ensures that the value is 0 or 1 for the bit.
+/// If `bit = 0` assigns (0, 1, 1, 0) as the resulting point
+/// coordinates, otherways, leaves the point as it is.
+pub fn conditional_select_gadget(
+    cs: &mut ConstraintSystem,
+    bit: Variable,
+    point: (Variable, Variable, Variable, Variable),
+) -> (Variable, Variable, Variable, Variable) {
+    // Ensure that the bit relies is either 0 or 1
     binary_constrain_gadget(cs, bit);
-    if bit == Variable::One() {
-        return false;
-    };
-    true
+    // Mul X and T coords by the bit.
+    // If `bit = 1` we will get the same point
+    // If `bit = 0` we will get the identity point.
+    let new_x = cs.multiply(point.0.into(), bit.into()).2;
+    let new_z = cs.multiply(point.3.into(), bit.into()).2;
+    (new_x, point.1, point.2, new_z)
 }
 
-/// If `bit = 0` the proof will be generated to prove `a + b = c`.
-/// If `bit = 1` the proof will be generated to prove `a - b = c`.
+/// If `bit = 1` the proof will be generated to prove `a + b = c`.
+/// If `bit = 0` the proof will be generated to prove `a - b = c`.
 /// For any other value of bit, the proof gen will fail.
 pub fn cond_selection_proof(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     bit: u8,
-    a: u8,
-    b: u8,
-    c: u8,
+    points: &[RistrettoPoint],
 ) -> Result<(R1CSProof, Vec<CompressedRistretto>), R1CSError> {
     let mut transcript = Transcript::new(b"R1CS conditional selection Gadget");
 
@@ -38,32 +44,14 @@ pub fn cond_selection_proof(
 
     // Commit high-level variables
     let (com, var) = prover.commit(Scalar::from(bit), Scalar::random(&mut thread_rng()));
-    let lcs: Vec<LC> = [a, b, c]
-        .iter()
-        .map(|x| LC::from(Scalar::from(*x)))
-        .collect();
-
-    // Add cond constrain
-
-    // If `bit == 0` -> `a + b - c = 0`
-    if conditional_select_gadget(&mut prover, var) {
-        prover.constrain(lcs[0].clone() + lcs[1].clone() - lcs[2].clone());
-    } else {
-        // If `bit == 1` -> `a - b + c = 0`
-        prover.constrain(lcs[0].clone() - lcs[1].clone() + lcs[2].clone());
-    };
-
-    let proof = prover.prove(bp_gens)?;
-    Ok((proof, vec![com]))
+    unimplemented!()
 }
 
 pub fn cond_selection_verify(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     commitments: &Vec<CompressedRistretto>,
-    a: u8,
-    b: u8,
-    c: u8,
+    points: &[RistrettoPoint],
     proof: &R1CSProof,
 ) -> Result<(), R1CSError> {
     let mut transcript = Transcript::new(b"R1CS conditional selection Gadget");
@@ -73,59 +61,17 @@ pub fn cond_selection_verify(
 
     // 2. Commit high-level variables
     let vars: Vec<_> = commitments.iter().map(|V| verifier.commit(*V)).collect();
-    let lcs: Vec<LC> = [a, b, c]
-        .iter()
-        .map(|x| LC::from(Scalar::from(*x)))
-        .collect();
-
-    // Add cond constrain
-
-    // If `bit == 0` -> `a + b - c = 0`
-    if !conditional_select_gadget(&mut verifier, vars[0]) {
-        verifier.constrain(lcs[0].clone() + lcs[1].clone() - lcs[2].clone());
-    } else {
-        // If `bit == 1` -> `a - b + c = 0`
-        verifier.constrain(lcs[0].clone() - lcs[1].clone() + lcs[2].clone());
-    };
-
-    verifier.verify(proof, &pc_gens, &bp_gens, &mut thread_rng())?;
-
-    Ok(())
+    unimplemented!()
 }
 
-fn cond_selection_roundtrip_helper(a: u8, b: u8, c: u8, bit: u8) -> Result<(), R1CSError> {
+fn cond_selection_roundtrip_helper(points: &[RistrettoPoint], bit: u8) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(32, 1);
 
-    let (proof, commitments) = cond_selection_proof(&pc_gens, &bp_gens, bit, a, b, c)?;
-
-    cond_selection_verify(&pc_gens, &bp_gens, &commitments, a, b, c, &proof)
+    unimplemented!()
 }
 
 mod tests {
     use super::*;
-
-    #[test]
-    fn cond_selection() {
-        let a = 8u8;
-        let b = 5u8;
-        let c1 = 13u8; // a + b
-        let c2 = 3u8; // a - b
-        let bad_res = 55u8;
-        let bit_1 = 1u8;
-        let bit_0 = 0u8;
-        let wrong_bit = 3u8;
-
-        // Bit != 0 | 1 should fail
-        assert!(cond_selection_roundtrip_helper(a, b, c1, wrong_bit).is_err());
-        // Bit == 1 and a + b = c1 should pass
-        assert!(cond_selection_roundtrip_helper(a, b, c1, bit_0).is_ok());
-        // Bit == 0 and a - b = c2 should pass
-        assert!(cond_selection_roundtrip_helper(a, b, c2, bit_1).is_ok());
-        // Bit == 1 and a + b = c2 should fail
-        assert!(cond_selection_roundtrip_helper(a, b, c2, bit_1).is_err());
-        // Bit == 0 and a - b = c1 should fail
-        assert!(cond_selection_roundtrip_helper(a, b, c1, bit_0).is_err());
-    }
 }
