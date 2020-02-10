@@ -1,11 +1,23 @@
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination};
 use curve25519_dalek::scalar::Scalar;
+use zerocaf::edwards::EdwardsPoint as SonnyEdwardsPoint;
 // Represents a Sonny Edwards Point using Twisted Edwards Extended Coordinates
 pub struct SonnyEdwardsPointGadget {
     pub X: LinearCombination,
     pub Y: LinearCombination,
     pub Z: LinearCombination,
     pub T: LinearCombination,
+}
+
+impl From<SonnyEdwardsPoint> for SonnyEdwardsPointGadget {
+    fn from(p: SonnyEdwardsPoint) -> SonnyEdwardsPointGadget {
+        SonnyEdwardsPointGadget {
+            X: Scalar::from_bytes_mod_order(p.X.to_bytes()).into(),
+            Y: Scalar::from_bytes_mod_order(p.Y.to_bytes()).into(),
+            Z: Scalar::from_bytes_mod_order(p.Z.to_bytes()).into(),
+            T: Scalar::from_bytes_mod_order(p.T.to_bytes()).into(),
+        }
+    }
 }
 
 impl SonnyEdwardsPointGadget {
