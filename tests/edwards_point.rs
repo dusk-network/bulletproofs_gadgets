@@ -65,7 +65,7 @@ fn point_addition_proof(
     // Adds P1 to P2
     let P3 = P1_Gadget.add(&mut prover, P2_Gadget);
     // Ensure we have the correct result
-    P3.equal(&mut prover, P3_Gadget);
+    P3.equals(&mut prover, P3_Gadget);
     // Make a proof
     let proof = prover.prove(bp_gens)?;
 
@@ -90,7 +90,7 @@ fn point_addition_verify(
     // Adds P1 to P2
     let P3 = P1_Gadget.add(&mut verifier, P2_Gadget);
     // Ensure we have the correct result
-    P3.equal(&mut verifier, P3_Gadget);
+    P3.equals(&mut verifier, P3_Gadget);
 
     verifier
         .verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())
@@ -143,7 +143,7 @@ fn point_doubling_proof(
     // Adds P1 to P1
     let P2 = P1_Gadget.double(&mut prover);
     // Ensure we have the correct result
-    P2.equal(&mut prover, P2_Gadget);
+    P2.equals(&mut prover, P2_Gadget);
     // Make a proof
     let proof = prover.prove(bp_gens)?;
 
@@ -167,7 +167,7 @@ fn point_doubling_verify(
     // Adds P1 to P1
     let P2 = P1_Gadget.double(&mut verifier);
     // Ensure we have the correct result
-    P2.equal(&mut verifier, P2_Gadget);
+    P2.equals(&mut verifier, P2_Gadget);
 
     verifier
         .verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())

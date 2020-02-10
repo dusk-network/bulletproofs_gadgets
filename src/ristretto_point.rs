@@ -51,10 +51,14 @@ impl SonnyRistrettoPointGadget {
         let res_add = one_lc.clone() + self.X.clone();
         cs.constrain(one_lc.clone() + self.X - res_add.clone());
         // If X-coord == 0, this constrain will not be satisfied.
-        cs.constrain(one_lc - res_add);
+        cs.constrain(one_lc.clone() - res_add);
         // Constrain Y-coord != Z-coord
-        //let b = LinearCombination::from(cs.challenge_scalar(b"1st rand"));
-        // XXX: Check inside R1CS that Y != Z
+        // Subtraxt Y - Z and check != zero
+        let subtraction = self.Y - self.Z;
+        let res_add_2 = subtraction.clone() + one_lc.clone();
+        cs.constrain(one_lc.clone() + subtraction - res_add_2.clone());
+        // If subtraction == (Y-coord - Z-coord) == 0, this constrain will not be satisfied.
+        cs.constrain(one_lc - res_add_2)
     }
 
     pub fn add(
@@ -134,16 +138,14 @@ impl SonnyRistrettoPointGadget {
             T: T.into(),
         }
     }
-    // self.x * other.z = other.x * self.z AND self.y * other.z == other.y * self.z
-    pub fn equal(&self, cs: &mut dyn ConstraintSystem, other: SonnyRistrettoPointGadget) {
-        let (_, _, a) = cs.multiply(self.X.clone(), other.Z.clone());
-        let (_, _, b) = cs.multiply(other.X, self.Z.clone());
-        cs.constrain(a - b);
-
-        let (_, _, c) = cs.multiply(self.Y.clone(), other.Z);
-        let (_, _, d) = cs.multiply(other.Y, self.Z.clone());
-        cs.constrain(c - d);
+    /// Verifies RistrettoPoint equalty following the Ristretto formulae
+    /// To be equal: X1*Y2 == Y1*X2
+    pub fn equals(&self, cs: &mut dyn ConstraintSystem, other: SonnyRistrettoPointGadget) {
+        let (_, _, x1y2) = cs.multiply(self.X.clone(), other.Y);
+        let (_, _, y1x2) = cs.multiply(self.Y.clone(), other.X);
+        cs.constrain(x1y2 - y1x2);
     }
+
     pub fn double(&self, cs: &mut dyn ConstraintSystem) -> SonnyRistrettoPointGadget {
         let two = Scalar::from(2u8);
         // XXX: public constants should be defined at a higher level
