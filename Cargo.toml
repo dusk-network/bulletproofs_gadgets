@@ -14,5 +14,5 @@ rand = "0.7.3"
 
 [dependencies.bulletproofs]
 git = "https://github.com/dusk-network/bulletproofs"
-branch = "dalek-v2"
+branch = "develop"
 features = ["yoloproofs"]
