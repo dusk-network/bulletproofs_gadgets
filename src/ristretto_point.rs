@@ -1,6 +1,10 @@
-use bulletproofs::r1cs::{ConstraintSystem, LinearCombination};
+use bulletproofs::r1cs::{
+    ConstraintSystem, LinearCombination, R1CSError, RandomizedConstraintSystem, Variable,
+};
 use curve25519_dalek::scalar::Scalar;
 use zerocaf::ristretto::RistrettoPoint as SonnyRistrettoPoint;
+
+#[derive(Clone)]
 // Represents a Sonny Edwards Point using Twisted Edwards Extended Coordinates
 pub struct SonnyRistrettoPointGadget {
     pub X: LinearCombination,
@@ -10,9 +14,49 @@ pub struct SonnyRistrettoPointGadget {
 }
 
 impl SonnyRistrettoPointGadget {
+    /// Builds a `SonnyRistrettoPointGadget` from a `SonnyRistrettoPoint` adding a constrain
+    /// that checks that the point relies on the curve and another one checking that
+    /// it is indeed a RistrettoPoint.
     pub fn from(point: SonnyRistrettoPoint, cs: &mut dyn ConstraintSystem) -> Self {
-        unimplemented!()
+        let gadget_p = SonnyRistrettoPointGadget {
+            X: Scalar::from_bytes_mod_order(point.0.X.to_bytes()).into(),
+            Y: Scalar::from_bytes_mod_order(point.0.Y.to_bytes()).into(),
+            Z: Scalar::from_bytes_mod_order(point.0.Z.to_bytes()).into(),
+            T: Scalar::from_bytes_mod_order(point.0.T.to_bytes()).into(),
+        };
+
+        gadget_p.ristretto_constrain(cs);
+        gadget_p
     }
+
+    /// Adds constrains to validate only points that lie on the prime sub-group and excludes the others
+    /// that lie on smaller order groups with order (2, 4 and 8).
+    /// It also adds constrains that validate only points that satisfy the Sonnycurve equation.
+    pub fn ristretto_constrain(&self, cs: &mut dyn ConstraintSystem) {
+        // XXX: Here we should check that the point relies on the curve.
+
+        // Compute 2*P, 4*P and 8*P
+        let two_p = self.double(cs);
+        let four_p = two_p.double(cs);
+        let eight_p = four_p.double(cs);
+        // Check that none of them is equal to the Identity point
+        for point in &[two_p, four_p, eight_p] {
+            point.to_owned().is_not_identity_constrain(cs);
+        }
+    }
+
+    pub fn is_not_identity_constrain(self, cs: &mut dyn ConstraintSystem) {
+        // Constrain X-coord to be != 0
+        let one_lc: LinearCombination = cs.allocate(Some(Scalar::one())).unwrap().into();
+        let res_add = one_lc.clone() + self.X.clone();
+        cs.constrain(one_lc.clone() + self.X - res_add.clone());
+        // If X-coord == 0, this constrain will not be satisfied.
+        cs.constrain(one_lc - res_add);
+        // Constrain Y-coord != Z-coord
+        //let b = LinearCombination::from(cs.challenge_scalar(b"1st rand"));
+        // XXX: Check inside R1CS that Y != Z
+    }
+
     pub fn add(
         self,
         cs: &mut dyn ConstraintSystem,
