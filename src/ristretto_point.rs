@@ -1,31 +1,23 @@
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination};
 use curve25519_dalek::scalar::Scalar;
-use zerocaf::edwards::EdwardsPoint as SonnyEdwardsPoint;
+use zerocaf::ristretto::RistrettoPoint as SonnyRistrettoPoint;
 // Represents a Sonny Edwards Point using Twisted Edwards Extended Coordinates
-pub struct SonnyEdwardsPointGadget {
+pub struct SonnyRistrettoPointGadget {
     pub X: LinearCombination,
     pub Y: LinearCombination,
     pub Z: LinearCombination,
     pub T: LinearCombination,
 }
 
-impl From<SonnyEdwardsPoint> for SonnyEdwardsPointGadget {
-    fn from(p: SonnyEdwardsPoint) -> SonnyEdwardsPointGadget {
-        SonnyEdwardsPointGadget {
-            X: Scalar::from_bytes_mod_order(p.X.to_bytes()).into(),
-            Y: Scalar::from_bytes_mod_order(p.Y.to_bytes()).into(),
-            Z: Scalar::from_bytes_mod_order(p.Z.to_bytes()).into(),
-            T: Scalar::from_bytes_mod_order(p.T.to_bytes()).into(),
-        }
+impl SonnyRistrettoPointGadget {
+    pub fn from(point: SonnyRistrettoPoint, cs: &mut dyn ConstraintSystem) -> Self {
+        unimplemented!()
     }
-}
-
-impl SonnyEdwardsPointGadget {
     pub fn add(
         self,
         cs: &mut dyn ConstraintSystem,
-        other: SonnyEdwardsPointGadget,
-    ) -> SonnyEdwardsPointGadget {
+        other: SonnyRistrettoPointGadget,
+    ) -> SonnyRistrettoPointGadget {
         // XXX: public constants should be defined at a higher level
         let a: Scalar = Scalar::from_bytes_mod_order(zerocaf::constants::EDWARDS_A.to_bytes());
         let d: Scalar = Scalar::from_bytes_mod_order(zerocaf::constants::EDWARDS_D.to_bytes());
@@ -91,7 +83,7 @@ impl SonnyEdwardsPointGadget {
         let (_, _, Z) = cs.multiply(F.into(), G.into());
         let (_, _, T) = cs.multiply(E.into(), H.into());
 
-        SonnyEdwardsPointGadget {
+        SonnyRistrettoPointGadget {
             X: X.into(),
             Y: Y.into(),
             Z: Z.into(),
@@ -99,7 +91,7 @@ impl SonnyEdwardsPointGadget {
         }
     }
     // self.x * other.z = other.x * self.z AND self.y * other.z == other.y * self.z
-    pub fn equal(&self, cs: &mut dyn ConstraintSystem, other: SonnyEdwardsPointGadget) {
+    pub fn equal(&self, cs: &mut dyn ConstraintSystem, other: SonnyRistrettoPointGadget) {
         let (_, _, a) = cs.multiply(self.X.clone(), other.Z.clone());
         let (_, _, b) = cs.multiply(other.X, self.Z.clone());
         cs.constrain(a - b);
@@ -108,7 +100,7 @@ impl SonnyEdwardsPointGadget {
         let (_, _, d) = cs.multiply(other.Y, self.Z.clone());
         cs.constrain(c - d);
     }
-    pub fn double(&self, cs: &mut dyn ConstraintSystem) -> SonnyEdwardsPointGadget {
+    pub fn double(&self, cs: &mut dyn ConstraintSystem) -> SonnyRistrettoPointGadget {
         let two = Scalar::from(2u8);
         // XXX: public constants should be defined at a higher level
         let a: Scalar = Scalar::from_bytes_mod_order(zerocaf::constants::EDWARDS_A.to_bytes());
@@ -169,7 +161,7 @@ impl SonnyEdwardsPointGadget {
         let (_, _, Z) = cs.multiply(F, G);
         let (_, _, T) = cs.multiply(E, H);
 
-        SonnyEdwardsPointGadget {
+        SonnyRistrettoPointGadget {
             X: X.into(),
             Y: Y.into(),
             Z: Z.into(),

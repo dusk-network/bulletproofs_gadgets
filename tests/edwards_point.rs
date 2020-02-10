@@ -6,29 +6,29 @@ extern crate rand;
 extern crate zerocaf;
 use bulletproofs::r1cs::{Prover, R1CSError, R1CSProof, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
-use bulletproofs_gadgets::edwards_point::SonnyEdwardsPointGadget;
+use bulletproofs_gadgets::ristretto_point::SonnyRistrettoPointGadget;
 use bulletproofs_gadgets::util::*;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
-use zerocaf::edwards::EdwardsPoint as SonnyEdwardsPoint;
+use zerocaf::ristretto::RistrettoPoint as SonnyRistrettoPoint;
 
 // Point Addition
 
 #[test]
 fn test_point_addition() {
-    let A = SonnyEdwardsPoint::new_random_point(&mut rand::thread_rng());
-    let B = SonnyEdwardsPoint::new_random_point(&mut rand::thread_rng());
+    let A = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
+    let B = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
     let C = A + B;
-    let D = SonnyEdwardsPoint::new_random_point(&mut rand::thread_rng());
+    let D = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
     assert!(point_addition_roundtrip_helper(A, B, C).is_ok());
     assert!(point_addition_roundtrip_helper(A, B, D).is_err());
 }
 
 fn point_addition_roundtrip_helper(
-    p1: SonnyEdwardsPoint,
-    p2: SonnyEdwardsPoint,
-    p3: SonnyEdwardsPoint,
+    p1: SonnyRistrettoPoint,
+    p2: SonnyRistrettoPoint,
+    p3: SonnyRistrettoPoint,
 ) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::default();
@@ -43,9 +43,9 @@ fn point_addition_roundtrip_helper(
 fn point_addition_proof(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
-    P1: SonnyEdwardsPoint,
-    P2: SonnyEdwardsPoint,
-    P3: SonnyEdwardsPoint,
+    P1: SonnyRistrettoPoint,
+    P2: SonnyRistrettoPoint,
+    P3: SonnyRistrettoPoint,
 ) -> Result<(R1CSProof, Vec<CompressedRistretto>), R1CSError> {
     let mut transcript = Transcript::new(b"PointAdd");
 
@@ -100,15 +100,15 @@ fn point_addition_verify(
 // Point Doubling
 #[test]
 fn test_point_doubling() {
-    let A = SonnyEdwardsPoint::new_random_point(&mut rand::thread_rng());
+    let A = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
     let B = A + A;
     let C = A + B;
     assert!(point_doubling_roundtrip_helper(A, B).is_ok());
     assert!(point_doubling_roundtrip_helper(A, C).is_err());
 }
 fn point_doubling_roundtrip_helper(
-    p1: SonnyEdwardsPoint,
-    p2: SonnyEdwardsPoint,
+    p1: SonnyRistrettoPoint,
+    p2: SonnyRistrettoPoint,
 ) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::default();
@@ -123,8 +123,8 @@ fn point_doubling_roundtrip_helper(
 fn point_doubling_proof(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
-    P1: SonnyEdwardsPoint,
-    P2: SonnyEdwardsPoint,
+    P1: SonnyRistrettoPoint,
+    P2: SonnyRistrettoPoint,
 ) -> Result<(R1CSProof, Vec<CompressedRistretto>), R1CSError> {
     let mut transcript = Transcript::new(b"PointDouble");
 
