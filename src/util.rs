@@ -22,7 +22,7 @@ pub fn nonzero_gadget(
     let (_, _, should_be_one) = cs.multiply(inv.into(), var);
     let should_be_one: LinearCombination = should_be_one.into();
     let should_be_zero: LinearCombination = should_be_one - LinearCombination::from(Scalar::one());
-
+    cs.constrain(should_be_zero);
     Ok(())
 }
 
