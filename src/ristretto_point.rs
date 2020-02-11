@@ -1,8 +1,11 @@
+use crate::util::nonzero_gadget;
 use bulletproofs::r1cs::{
     ConstraintSystem, LinearCombination, R1CSError, RandomizedConstraintSystem, Variable,
 };
-use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar};
 use zerocaf::ristretto::RistrettoPoint as SonnyRistrettoPoint;
+use zerocaf::scalar::Scalar as SonnyScalar;
+use zerocaf::traits::ops::Double;
 
 #[derive(Clone)]
 // Represents a Sonny Edwards Point using Twisted Edwards Extended Coordinates
@@ -24,41 +27,47 @@ impl SonnyRistrettoPointGadget {
             Z: Scalar::from_bytes_mod_order(point.0.Z.to_bytes()).into(),
             T: Scalar::from_bytes_mod_order(point.0.T.to_bytes()).into(),
         };
-
-        gadget_p.ristretto_constrain(cs);
+        gadget_p.ristretto_gadget(cs, Some(point * SonnyScalar::from(8u8)));
         gadget_p
     }
 
     /// Adds constrains to validate only points that lie on the prime sub-group and excludes the others
     /// that lie on smaller order groups with order (2, 4 and 8).
     /// It also adds constrains that validate only points that satisfy the Sonnycurve equation.
-    pub fn ristretto_constrain(&self, cs: &mut dyn ConstraintSystem) {
+    pub fn ristretto_gadget(
+        &self,
+        cs: &mut dyn ConstraintSystem,
+        point_8P_assign: Option<SonnyRistrettoPoint>,
+    ) {
         // XXX: Here we should check that the point relies on the curve.
 
-        // Compute 2*P, 4*P and 8*P
-        let two_p = self.double(cs);
-        let four_p = two_p.double(cs);
-        let eight_p = four_p.double(cs);
-        // Check that none of them is equal to the Identity point
-        for point in &[two_p, four_p, eight_p] {
-            point.to_owned().is_not_identity_constrain(cs);
-        }
-    }
+        let eight_p = self.double(cs).double(cs).double(cs);
+        // Constrain that 8*P != Identity point
+        match point_8P_assign {
+            Some(point) => {
+                // Constrain X != 0
+                nonzero_gadget(
+                    eight_p.X,
+                    Some(Scalar::from_bytes_mod_order(point.0.X.to_bytes())),
+                    cs,
+                );
+                // Constrain Y - Z != 0
+                let y_minus_z = eight_p.Y.clone() - eight_p.Z.clone();
+                cs.constrain(eight_p.Y - eight_p.Z + y_minus_z.clone());
 
-    pub fn is_not_identity_constrain(self, cs: &mut dyn ConstraintSystem) {
-        // Constrain X-coord to be != 0
-        let one_lc: LinearCombination = cs.allocate(Some(Scalar::one())).unwrap().into();
-        let res_add = one_lc.clone() + self.X.clone();
-        cs.constrain(one_lc.clone() + self.X - res_add.clone());
-        // If X-coord == 0, this constrain will not be satisfied.
-        cs.constrain(one_lc.clone() - res_add);
-        // Constrain Y-coord != Z-coord
-        // Subtraxt Y - Z and check != zero
-        let subtraction = self.Y - self.Z;
-        let res_add_2 = subtraction.clone() + one_lc.clone();
-        cs.constrain(one_lc.clone() + subtraction - res_add_2.clone());
-        // If subtraction == (Y-coord - Z-coord) == 0, this constrain will not be satisfied.
-        cs.constrain(one_lc - res_add_2)
+                let y_minus_z_scalar = Scalar::from_bytes_mod_order(point.0.Y.to_bytes())
+                    - Scalar::from_bytes_mod_order(point.0.Z.to_bytes());
+                nonzero_gadget(y_minus_z, Some(y_minus_z_scalar), cs);
+            }
+            None => {
+                // Constrain X != 0
+                nonzero_gadget(eight_p.X, None, cs);
+                // Constrain Y - Z != 0
+                let y_minus_z = eight_p.Y.clone() - eight_p.Z.clone();
+                cs.constrain(eight_p.Y - eight_p.Z + y_minus_z.clone());
+                nonzero_gadget(y_minus_z, None, cs);
+            }
+        }
     }
 
     pub fn add(
