@@ -9,7 +9,6 @@ pub fn nonzero_gadget(
     var_assigment: Option<FieldElement>,
     cs: &mut dyn ConstraintSystem,
 ) {
-    println!("{:?}", var_assigment.unwrap().inverse());
     let (inv_var, _, _) = cs
         .allocate_multiplier(var_assigment.and_then(|q| {
             Some((
@@ -18,7 +17,6 @@ pub fn nonzero_gadget(
             ))
         }))
         .unwrap();
-    println!("{:?}", cs.multipliers_len());
 
     // Var * Inv(Var) = 1
     let (_, _, should_be_one) = cs.multiply(inv_var.into(), var);

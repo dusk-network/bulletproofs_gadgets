@@ -36,7 +36,7 @@ fn point_addition_roundtrip_helper(
 ) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::default();
-    let bp_gens = BulletproofGens::new(32, 1);
+    let bp_gens = BulletproofGens::new(128, 1);
 
     // For the example, we also commit to the points although it is not necessary
     let (proof, commitments) = point_addition_proof(&pc_gens, &bp_gens, p1, p2, p3)?;
@@ -117,7 +117,7 @@ fn point_doubling_roundtrip_helper(
 ) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::default();
-    let bp_gens = BulletproofGens::new(32, 1);
+    let bp_gens = BulletproofGens::new(128, 1);
 
     // For the example, we also commit to the points although it is not necessary
     let (proof, commitments) = point_doubling_proof(&pc_gens, &bp_gens, p1, p2)?;
@@ -217,13 +217,13 @@ fn is_ristretto_verify(
 fn is_ristretto_roundtrip_helper(point: SonnyRistrettoPoint) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::default();
-    let bp_gens = BulletproofGens::new(32, 1);
+    let bp_gens = BulletproofGens::new(64, 1);
 
     let (proof, commitments) = is_ristretto_proof(&pc_gens, &bp_gens, point)?;
 
     is_ristretto_verify(&pc_gens, &bp_gens, point, proof, commitments)
 }
-#[ignore]
+
 #[test]
 fn is_ristretto_gadget() {
     let point = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
@@ -285,34 +285,20 @@ fn double_proof(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     point: SonnyRistrettoPoint,
+    point_double: SonnyRistrettoPoint,
 ) -> Result<R1CSProof, R1CSError> {
     let mut transcript = Transcript::new(b"IsRistretto?");
 
     // 1. Create a prover
     let mut prover = Prover::new(pc_gens, &mut transcript);
-
-    let gadget_p = SonnyRistrettoPointGadget {
-        X: Scalar::from_bytes_mod_order(point.0.X.to_bytes()).into(),
-        Y: Scalar::from_bytes_mod_order(point.0.Y.to_bytes()).into(),
-        Z: Scalar::from_bytes_mod_order(point.0.Z.to_bytes()).into(),
-        T: Scalar::from_bytes_mod_order(point.0.T.to_bytes()).into(),
-    };
-
+    // Generate P gadget which applies the RistrettoGadget
+    let gadget_p = SonnyRistrettoPointGadget::from_point(point, &mut prover);
+    // Compute 2*P gadget
     let gadget_2p = gadget_p.double(&mut prover);
-    let doubl_point = point.double();
-    let doubl_point_x: LinearCombination =
-        Scalar::from_bytes_mod_order(doubl_point.0.X.to_bytes()).into();
-    let doubl_point_y: LinearCombination =
-        Scalar::from_bytes_mod_order(doubl_point.0.Y.to_bytes()).into();
-    let doubl_point_z: LinearCombination =
-        Scalar::from_bytes_mod_order(doubl_point.0.Z.to_bytes()).into();
-    let doubl_point_t: LinearCombination =
-        Scalar::from_bytes_mod_order(doubl_point.0.T.to_bytes()).into();
-
-    cs_to_constrain(&mut prover, gadget_2p.X.clone(), doubl_point_x.clone());
-    cs_to_constrain(&mut prover, gadget_2p.Y.clone(), doubl_point_y.clone());
-    cs_to_constrain(&mut prover, gadget_2p.Z.clone(), doubl_point_z.clone());
-    cs_to_constrain(&mut prover, gadget_2p.T, doubl_point_t);
+    // Generate 2*P gadget which applies the RistrettoGadget
+    let gadget_from_2p = SonnyRistrettoPointGadget::from_point(point_double, &mut prover);
+    // Apply constrains to check point equalty
+    gadget_2p.equals(&mut prover, gadget_from_2p);
 
     let proof = prover.prove(&bp_gens)?;
     Ok(proof)
@@ -322,59 +308,51 @@ fn double_verify(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     point: SonnyRistrettoPoint,
+    point_double: SonnyRistrettoPoint,
     proof: R1CSProof,
 ) -> Result<(), R1CSError> {
     let mut transcript = Transcript::new(b"IsRistretto?");
 
     let mut verifier = Verifier::new(&mut transcript);
 
-    let gadget_p = SonnyRistrettoPointGadget {
-        X: Scalar::from_bytes_mod_order(point.0.X.to_bytes()).into(),
-        Y: Scalar::from_bytes_mod_order(point.0.Y.to_bytes()).into(),
-        Z: Scalar::from_bytes_mod_order(point.0.Z.to_bytes()).into(),
-        T: Scalar::from_bytes_mod_order(point.0.T.to_bytes()).into(),
-    };
-
+    // Generate P gadget which applies the RistrettoGadget
+    let gadget_p = SonnyRistrettoPointGadget::from_point(point, &mut verifier);
+    // Compute 2*P gadget
     let gadget_2p = gadget_p.double(&mut verifier);
-    let doubl_point = point.double();
-    let doubl_point_x: LinearCombination =
-        Scalar::from_bytes_mod_order(doubl_point.0.X.to_bytes()).into();
-    let doubl_point_y: LinearCombination =
-        Scalar::from_bytes_mod_order(doubl_point.0.Y.to_bytes()).into();
-    let doubl_point_z: LinearCombination =
-        Scalar::from_bytes_mod_order(doubl_point.0.Z.to_bytes()).into();
-    let doubl_point_t: LinearCombination =
-        Scalar::from_bytes_mod_order(doubl_point.0.T.to_bytes()).into();
-
-    cs_to_constrain(&mut verifier, gadget_2p.X.clone(), doubl_point_x.clone());
-    cs_to_constrain(&mut verifier, gadget_2p.Y.clone(), doubl_point_y.clone());
-    cs_to_constrain(&mut verifier, gadget_2p.Z.clone(), doubl_point_z.clone());
-    cs_to_constrain(&mut verifier, gadget_2p.T, doubl_point_t);
+    // Generate 2*P gadget which applies the RistrettoGadget
+    let gadget_from_2p = SonnyRistrettoPointGadget::from_point(point_double, &mut verifier);
+    // Check that both points are the same.
+    gadget_2p.equals(&mut verifier, gadget_from_2p);
 
     verifier.verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())?;
     Ok(())
 }
 
-fn cs_to_constrain(
-    cs: &mut ConstraintSystem,
-    gadget_coord: LinearCombination,
-    point_coord: LinearCombination,
-) {
-    cs.constrain(gadget_coord - point_coord);
-}
-
-fn double_roundtrip_helper(point: SonnyRistrettoPoint) -> Result<(), R1CSError> {
+fn double_roundtrip_helper(
+    point: SonnyRistrettoPoint,
+    point_doubled: SonnyRistrettoPoint,
+) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::default();
-    let bp_gens = BulletproofGens::new(32, 1);
+    let bp_gens = BulletproofGens::new(128, 1);
 
-    let proof = double_proof(&pc_gens, &bp_gens, point)?;
+    let proof = double_proof(&pc_gens, &bp_gens, point, point_doubled)?;
 
-    double_verify(&pc_gens, &bp_gens, point, proof)
+    double_verify(&pc_gens, &bp_gens, point, point_doubled, proof)
 }
 
 #[test]
 fn double() {
+    use zerocaf::traits::Identity;
     let point = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
-    assert!(double_roundtrip_helper(point).is_ok());
+    let point_doubled = point.double();
+    let bad_point = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
+    assert!(double_roundtrip_helper(point, point_doubled).is_ok());
+    assert!(double_roundtrip_helper(point, bad_point).is_err());
+    // Identity point will cause a panic since Ristretto check cannot be applied to it.
+    /*assert!(double_roundtrip_helper(
+        SonnyRistrettoPoint::identity(),
+        SonnyRistrettoPoint::identity()
+    )
+    .is_err())*/
 }
