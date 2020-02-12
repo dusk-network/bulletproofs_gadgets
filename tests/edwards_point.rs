@@ -4,13 +4,16 @@ extern crate curve25519_dalek;
 extern crate merlin;
 extern crate rand;
 extern crate zerocaf;
-use bulletproofs::r1cs::{LinearCombination, Prover, R1CSError, R1CSProof, Verifier};
+use bulletproofs::r1cs::{
+    ConstraintSystem, LinearCombination, Prover, R1CSError, R1CSProof, Verifier,
+};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use bulletproofs_gadgets::ristretto_point::SonnyRistrettoPointGadget;
 use bulletproofs_gadgets::util::*;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
+use zerocaf::traits::ops::Double;
 use zerocaf::{field::FieldElement, ristretto::RistrettoPoint as SonnyRistrettoPoint};
 
 // Point Addition
@@ -237,8 +240,6 @@ fn is_not_zero_proof(
     // 1. Create a prover
     let mut prover = Prover::new(pc_gens, &mut transcript);
 
-    // Generate a RistrettoPointGadget will check inside the CS that the Point is
-    // indeed a RistrettoPoint
     let fe_as_lc: LinearCombination = Scalar::from_bytes_mod_order(fe.to_bytes()).into();
     nonzero_gadget(fe_as_lc, Some(fe), &mut prover);
 
@@ -278,4 +279,102 @@ fn is_not_zero() {
     assert!(is_not_zero_roundtrip_helper(FieldElement::one()).is_ok());
     // The next line causes a `panic!` as it is expected to
     //assert!(is_not_zero_roundtrip_helper(FieldElement::zero()).is_err());
+}
+
+fn double_proof(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    point: SonnyRistrettoPoint,
+) -> Result<R1CSProof, R1CSError> {
+    let mut transcript = Transcript::new(b"IsRistretto?");
+
+    // 1. Create a prover
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+
+    let gadget_p = SonnyRistrettoPointGadget {
+        X: Scalar::from_bytes_mod_order(point.0.X.to_bytes()).into(),
+        Y: Scalar::from_bytes_mod_order(point.0.Y.to_bytes()).into(),
+        Z: Scalar::from_bytes_mod_order(point.0.Z.to_bytes()).into(),
+        T: Scalar::from_bytes_mod_order(point.0.T.to_bytes()).into(),
+    };
+
+    let gadget_2p = gadget_p.double(&mut prover);
+    let doubl_point = point.double();
+    let doubl_point_x: LinearCombination =
+        Scalar::from_bytes_mod_order(doubl_point.0.X.to_bytes()).into();
+    let doubl_point_y: LinearCombination =
+        Scalar::from_bytes_mod_order(doubl_point.0.Y.to_bytes()).into();
+    let doubl_point_z: LinearCombination =
+        Scalar::from_bytes_mod_order(doubl_point.0.Z.to_bytes()).into();
+    let doubl_point_t: LinearCombination =
+        Scalar::from_bytes_mod_order(doubl_point.0.T.to_bytes()).into();
+
+    cs_to_constrain(&mut prover, gadget_2p.X.clone(), doubl_point_x.clone());
+    cs_to_constrain(&mut prover, gadget_2p.Y.clone(), doubl_point_y.clone());
+    cs_to_constrain(&mut prover, gadget_2p.Z.clone(), doubl_point_z.clone());
+    cs_to_constrain(&mut prover, gadget_2p.T, doubl_point_t);
+
+    let proof = prover.prove(&bp_gens)?;
+    Ok(proof)
+}
+
+fn double_verify(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    point: SonnyRistrettoPoint,
+    proof: R1CSProof,
+) -> Result<(), R1CSError> {
+    let mut transcript = Transcript::new(b"IsRistretto?");
+
+    let mut verifier = Verifier::new(&mut transcript);
+
+    let gadget_p = SonnyRistrettoPointGadget {
+        X: Scalar::from_bytes_mod_order(point.0.X.to_bytes()).into(),
+        Y: Scalar::from_bytes_mod_order(point.0.Y.to_bytes()).into(),
+        Z: Scalar::from_bytes_mod_order(point.0.Z.to_bytes()).into(),
+        T: Scalar::from_bytes_mod_order(point.0.T.to_bytes()).into(),
+    };
+
+    let gadget_2p = gadget_p.double(&mut verifier);
+    let doubl_point = point.double();
+    let doubl_point_x: LinearCombination =
+        Scalar::from_bytes_mod_order(doubl_point.0.X.to_bytes()).into();
+    let doubl_point_y: LinearCombination =
+        Scalar::from_bytes_mod_order(doubl_point.0.Y.to_bytes()).into();
+    let doubl_point_z: LinearCombination =
+        Scalar::from_bytes_mod_order(doubl_point.0.Z.to_bytes()).into();
+    let doubl_point_t: LinearCombination =
+        Scalar::from_bytes_mod_order(doubl_point.0.T.to_bytes()).into();
+
+    cs_to_constrain(&mut verifier, gadget_2p.X.clone(), doubl_point_x.clone());
+    cs_to_constrain(&mut verifier, gadget_2p.Y.clone(), doubl_point_y.clone());
+    cs_to_constrain(&mut verifier, gadget_2p.Z.clone(), doubl_point_z.clone());
+    cs_to_constrain(&mut verifier, gadget_2p.T, doubl_point_t);
+
+    verifier.verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())?;
+    Ok(())
+}
+
+fn cs_to_constrain(
+    cs: &mut ConstraintSystem,
+    gadget_coord: LinearCombination,
+    point_coord: LinearCombination,
+) {
+    cs.constrain(gadget_coord - point_coord);
+}
+
+fn double_roundtrip_helper(point: SonnyRistrettoPoint) -> Result<(), R1CSError> {
+    // Common
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(32, 1);
+
+    let proof = double_proof(&pc_gens, &bp_gens, point)?;
+
+    double_verify(&pc_gens, &bp_gens, point, proof)
+}
+
+#[test]
+fn double() {
+    let point = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
+    assert!(double_roundtrip_helper(point).is_ok());
 }
