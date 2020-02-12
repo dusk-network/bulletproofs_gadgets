@@ -20,15 +20,28 @@ impl SonnyRistrettoPointGadget {
     /// Builds a `SonnyRistrettoPointGadget` from a `SonnyRistrettoPoint` adding a constrain
     /// that checks that the point relies on the curve and another one checking that
     /// it is indeed a RistrettoPoint.
-    pub fn from(point: SonnyRistrettoPoint, cs: &mut dyn ConstraintSystem) -> Self {
+    pub fn from_point(point: SonnyRistrettoPoint, cs: &mut dyn ConstraintSystem) -> Self {
         let gadget_p = SonnyRistrettoPointGadget {
             X: Scalar::from_bytes_mod_order(point.0.X.to_bytes()).into(),
             Y: Scalar::from_bytes_mod_order(point.0.Y.to_bytes()).into(),
             Z: Scalar::from_bytes_mod_order(point.0.Z.to_bytes()).into(),
             T: Scalar::from_bytes_mod_order(point.0.T.to_bytes()).into(),
         };
-        gadget_p.ristretto_gadget(cs, Some(point * SonnyScalar::from(8u8)));
+        gadget_p.ristretto_gadget(cs, Some(point));
         gadget_p
+    }
+
+    pub fn from_LCs(lcs: Vec<LinearCombination>, cs: &mut ConstraintSystem) -> Self {
+        assert!(lcs.len() == 4);
+        let gadget = SonnyRistrettoPointGadget {
+            X: lcs[0].clone(),
+            Y: lcs[1].clone(),
+            Z: lcs[2].clone(),
+            T: lcs[3].clone(),
+        };
+
+        gadget.ristretto_gadget(cs, None);
+        gadget
     }
 
     /// Adds constrains to validate only points that lie on the prime sub-group and excludes the others
@@ -37,35 +50,21 @@ impl SonnyRistrettoPointGadget {
     pub fn ristretto_gadget(
         &self,
         cs: &mut dyn ConstraintSystem,
-        point_8P_assign: Option<SonnyRistrettoPoint>,
+        point_assign: Option<SonnyRistrettoPoint>,
     ) {
         // XXX: Here we should check that the point relies on the curve.
 
         let eight_p = self.double(cs).double(cs).double(cs);
         // Constrain that 8*P != Identity point
-        match point_8P_assign {
+        match point_assign {
             Some(point) => {
                 // Constrain X != 0
-                nonzero_gadget(
-                    eight_p.X,
-                    Some(Scalar::from_bytes_mod_order(point.0.X.to_bytes())),
-                    cs,
-                );
-                // Constrain Y - Z != 0
-                let y_minus_z = eight_p.Y.clone() - eight_p.Z.clone();
-                cs.constrain(eight_p.Y - eight_p.Z + y_minus_z.clone());
-
-                let y_minus_z_scalar = Scalar::from_bytes_mod_order(point.0.Y.to_bytes())
-                    - Scalar::from_bytes_mod_order(point.0.Z.to_bytes());
-                nonzero_gadget(y_minus_z, Some(y_minus_z_scalar), cs);
+                let point_8 = point.double().double().double();
+                nonzero_gadget(eight_p.X, Some(point_8.0.X), cs);
             }
             None => {
                 // Constrain X != 0
                 nonzero_gadget(eight_p.X, None, cs);
-                // Constrain Y - Z != 0
-                let y_minus_z = eight_p.Y.clone() - eight_p.Z.clone();
-                cs.constrain(eight_p.Y - eight_p.Z + y_minus_z.clone());
-                nonzero_gadget(y_minus_z, None, cs);
             }
         }
     }
@@ -189,12 +188,11 @@ impl SonnyRistrettoPointGadget {
 
         // Compute E
         let E = {
-            let (_, _, p1xy_sq) = cs.multiply(
-                self.X.clone() + self.Y.clone(),
-                self.X.clone() + self.Y.clone(),
-            );
-            let E = p1xy_sq - A - B;
-            cs.constrain(E.clone() - p1xy_sq + A + B);
+            let p1_xy = self.X.clone() + self.Y.clone();
+            cs.constrain(self.X.clone() + self.Y.clone() - p1_xy.clone());
+            let p1_xy_sq = cs.multiply(p1_xy.clone(), p1_xy).2;
+            let E = p1_xy_sq - A.clone() - B.clone();
+            cs.constrain(E.clone() - p1_xy_sq + A + B);
             E
         };
 

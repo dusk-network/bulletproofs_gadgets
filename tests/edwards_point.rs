@@ -4,18 +4,19 @@ extern crate curve25519_dalek;
 extern crate merlin;
 extern crate rand;
 extern crate zerocaf;
-use bulletproofs::r1cs::{Prover, R1CSError, R1CSProof, Verifier};
+use bulletproofs::r1cs::{LinearCombination, Prover, R1CSError, R1CSProof, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use bulletproofs_gadgets::ristretto_point::SonnyRistrettoPointGadget;
 use bulletproofs_gadgets::util::*;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
-use zerocaf::ristretto::RistrettoPoint as SonnyRistrettoPoint;
+use zerocaf::{field::FieldElement, ristretto::RistrettoPoint as SonnyRistrettoPoint};
 
 // Point Addition
 
 #[test]
+#[ignore]
 fn test_point_addition() {
     let A = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
     let B = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
@@ -99,6 +100,7 @@ fn point_addition_verify(
 
 // Point Doubling
 #[test]
+#[ignore]
 fn test_point_doubling() {
     let A = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
     let B = A + A;
@@ -172,4 +174,108 @@ fn point_doubling_verify(
     verifier
         .verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())
         .map_err(|_| R1CSError::VerificationError)
+}
+
+fn is_ristretto_proof(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    point: SonnyRistrettoPoint,
+) -> Result<(R1CSProof, Vec<CompressedRistretto>), R1CSError> {
+    let mut transcript = Transcript::new(b"IsRistretto?");
+
+    // 1. Create a prover
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+
+    // Generate a RistrettoPointGadget will check inside the CS that the Point is
+    // indeed a RistrettoPoint
+    let point_gadget = SonnyRistrettoPointGadget::from_point(point, &mut prover);
+
+    let proof = prover.prove(&bp_gens)?;
+    Ok((proof, vec![]))
+}
+
+fn is_ristretto_verify(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    point: SonnyRistrettoPoint,
+    proof: R1CSProof,
+    commitments: Vec<CompressedRistretto>,
+) -> Result<(), R1CSError> {
+    let mut transcript = Transcript::new(b"IsRistretto?");
+
+    let mut verifier = Verifier::new(&mut transcript);
+
+    let point_gadget = SonnyRistrettoPointGadget::from_point(point, &mut verifier);
+
+    verifier.verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())?;
+    Ok(())
+}
+
+fn is_ristretto_roundtrip_helper(point: SonnyRistrettoPoint) -> Result<(), R1CSError> {
+    // Common
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(32, 1);
+
+    let (proof, commitments) = is_ristretto_proof(&pc_gens, &bp_gens, point)?;
+
+    is_ristretto_verify(&pc_gens, &bp_gens, point, proof, commitments)
+}
+#[ignore]
+#[test]
+fn is_ristretto_gadget() {
+    let point = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
+    assert!(is_ristretto_roundtrip_helper(point).is_ok());
+}
+
+fn is_not_zero_proof(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    fe: FieldElement,
+) -> Result<R1CSProof, R1CSError> {
+    let mut transcript = Transcript::new(b"IsRistretto?");
+
+    // 1. Create a prover
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+
+    // Generate a RistrettoPointGadget will check inside the CS that the Point is
+    // indeed a RistrettoPoint
+    let fe_as_lc: LinearCombination = Scalar::from_bytes_mod_order(fe.to_bytes()).into();
+    nonzero_gadget(fe_as_lc, Some(fe), &mut prover);
+
+    let proof = prover.prove(&bp_gens)?;
+    Ok(proof)
+}
+
+fn is_not_zero_verify(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    fe: FieldElement,
+    proof: R1CSProof,
+) -> Result<(), R1CSError> {
+    let mut transcript = Transcript::new(b"IsRistretto?");
+
+    let mut verifier = Verifier::new(&mut transcript);
+
+    let fe_as_lc: LinearCombination = Scalar::from_bytes_mod_order(fe.to_bytes()).into();
+    nonzero_gadget(fe_as_lc, Some(fe), &mut verifier);
+
+    verifier.verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())?;
+    Ok(())
+}
+
+fn is_not_zero_roundtrip_helper(fe: FieldElement) -> Result<(), R1CSError> {
+    // Common
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(32, 1);
+
+    let proof = is_not_zero_proof(&pc_gens, &bp_gens, fe)?;
+
+    is_not_zero_verify(&pc_gens, &bp_gens, fe, proof)
+}
+
+#[test]
+fn is_not_zero() {
+    assert!(is_not_zero_roundtrip_helper(FieldElement::one()).is_ok());
+    // The next line causes a `panic!` as it is expected to
+    //assert!(is_not_zero_roundtrip_helper(FieldElement::zero()).is_err());
 }
