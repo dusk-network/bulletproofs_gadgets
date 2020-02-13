@@ -288,6 +288,7 @@ fn is_not_zero() {
 ///////////////// Commit points as prover & Verifier /////////////////
 
 #[test]
+#[ignore]
 fn test_point_committing() {
     let A = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
     let B = A + A;
