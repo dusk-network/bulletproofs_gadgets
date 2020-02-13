@@ -16,7 +16,7 @@ use merlin::Transcript;
 use zerocaf::traits::ops::Double;
 use zerocaf::{field::FieldElement, ristretto::RistrettoPoint as SonnyRistrettoPoint};
 
-// Point Addition
+///////////////// Point Additionn with secret points /////////////////
 
 #[test]
 #[ignore]
@@ -101,7 +101,7 @@ fn point_addition_verify(
         .map_err(|_| R1CSError::VerificationError)
 }
 
-// Point Doubling
+///////////////// Point Doubling with secret points /////////////////
 #[test]
 #[ignore]
 fn test_point_doubling() {
@@ -179,6 +179,8 @@ fn point_doubling_verify(
         .map_err(|_| R1CSError::VerificationError)
 }
 
+///////////////// Is-Ristretto check /////////////////
+
 fn is_ristretto_proof(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
@@ -230,6 +232,8 @@ fn is_ristretto_gadget() {
     assert!(is_ristretto_roundtrip_helper(point).is_ok());
 }
 
+///////////////// Is-Nonzero check /////////////////
+
 fn is_not_zero_proof(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
@@ -280,6 +284,82 @@ fn is_not_zero() {
     // The next line causes a `panic!` as it is expected to
     //assert!(is_not_zero_roundtrip_helper(FieldElement::zero()).is_err());
 }
+
+///////////////// Commit points as prover & Verifier /////////////////
+
+#[test]
+fn test_point_committing() {
+    let A = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
+    let B = A + A;
+    assert!(point_committing_roundtrip_helper(A, A).is_ok());
+    assert!(point_committing_roundtrip_helper(A, B).is_err());
+}
+fn point_committing_roundtrip_helper(
+    p1: SonnyRistrettoPoint,
+    p2: SonnyRistrettoPoint,
+) -> Result<(), R1CSError> {
+    // Common
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(128, 1);
+
+    // For the example, we also commit to the points although it is not necessary
+    let (proof, commitments) = point_committing_proof(&pc_gens, &bp_gens, p1, p2)?;
+
+    point_committing_verify(&pc_gens, &bp_gens, proof, commitments)
+}
+
+// Proves that P1 = P2
+fn point_committing_proof(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    P1: SonnyRistrettoPoint,
+    P2: SonnyRistrettoPoint,
+) -> Result<(R1CSProof, Vec<CompressedRistretto>), R1CSError> {
+    let mut transcript = Transcript::new(b"PointDouble");
+
+    // 1. Create a prover
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+
+    // 2. Commit high-level variables
+    let (P1_Gadget, mut P1_Commitments) = prover_commit_to_sonny_point(&mut prover, P1);
+    let (P2_Gadget, mut P2_Commitments) = prover_commit_to_sonny_point(&mut prover, P2);
+
+    // Concatenate all commitments
+    let mut commitments = Vec::new();
+    commitments.append(&mut P1_Commitments);
+    commitments.append(&mut P2_Commitments);
+
+    // Ensure that the points are equal
+    //P1_Gadget.equals(&mut prover, P2_Gadget);
+    // Make a proof
+    let proof = prover.prove(bp_gens)?;
+
+    Ok((proof, commitments))
+}
+fn point_committing_verify(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    proof: R1CSProof,
+    commitments: Vec<CompressedRistretto>,
+) -> Result<(), R1CSError> {
+    let mut transcript = Transcript::new(b"PointDouble");
+
+    // Create the verifier
+    let mut verifier = Verifier::new(&mut transcript);
+
+    let points: Vec<&[CompressedRistretto]> = commitments.chunks(4).collect();
+    let P1_Gadget = verifier_commit_to_sonny_point(&mut verifier, points[0]);
+    let P2_Gadget = verifier_commit_to_sonny_point(&mut verifier, points[1]);
+
+    // Ensure we have the points are equal
+    //P1_Gadget.equals(&mut verifier, P2_Gadget);
+
+    verifier
+        .verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())
+        .map_err(|_| R1CSError::VerificationError)
+}
+
+///////////////// Point Doubling with public points /////////////////
 
 fn double_proof(
     pc_gens: &PedersenGens,
@@ -342,7 +422,7 @@ fn double_roundtrip_helper(
 }
 
 #[test]
-fn double() {
+fn double_pub_points() {
     use zerocaf::traits::Identity;
     let point = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
     let point_doubled = point.double();

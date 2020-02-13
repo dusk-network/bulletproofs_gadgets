@@ -25,7 +25,9 @@ pub fn nonzero_gadget(
 }
 
 /// Helper methods that are exposed to the end-user to allow them  
-/// to convert from a zerocaf type into a gadget specified by this library
+/// to convert from a zerocaf type into a gadget specified by this library.
+/// It already adds the RistrettoConstraints on the CS before returning the
+/// point gadget.
 pub fn prover_commit_to_sonny_point(
     prover: &mut Prover,
     p: SonnyRistrettoPoint,
