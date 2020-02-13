@@ -391,6 +391,7 @@ fn test_point_committing() {
     assert!(point_committing_roundtrip_helper(A, A).is_ok());
     assert!(point_committing_roundtrip_helper(A, B).is_err());
 }
+
 fn point_committing_roundtrip_helper(
     p1: SonnyRistrettoPoint,
     p2: SonnyRistrettoPoint,
@@ -427,7 +428,7 @@ fn point_committing_proof(
     commitments.append(&mut P2_Commitments);
 
     // Ensure that the points are equal
-    //P1_Gadget.equals(&mut prover, P2_Gadget);
+    P1_Gadget.equals(&mut prover, P2_Gadget);
     // Make a proof
     let proof = prover.prove(bp_gens)?;
 
@@ -449,7 +450,7 @@ fn point_committing_verify(
     let P2_Gadget = verifier_commit_to_sonny_point(&mut verifier, points[1]);
 
     // Ensure we have the points are equal
-    //P1_Gadget.equals(&mut verifier, P2_Gadget);
+    P1_Gadget.equals(&mut verifier, P2_Gadget);
 
     verifier
         .verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())
