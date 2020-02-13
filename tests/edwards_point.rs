@@ -285,6 +285,102 @@ fn is_not_zero() {
     //assert!(is_not_zero_roundtrip_helper(FieldElement::zero()).is_err());
 }
 
+///////////////// Conditional Selection /////////////////
+fn cond_select_proof(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    P1: SonnyRistrettoPoint,
+    P2: SonnyRistrettoPoint,
+    selector: Scalar,
+) -> Result<(R1CSProof, Vec<CompressedRistretto>), R1CSError> {
+    let mut transcript = Transcript::new(b"Conditional_Selection!");
+
+    // 1. Create a prover
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+
+    // 2. Commit high level variables
+    let (comm, cond) = prover.commit(selector, Scalar::random(&mut rand::thread_rng()));
+    // Conditionally select the point or the identity
+    let p1_gadget = SonnyRistrettoPointGadget::from_point(P1, &mut prover);
+    // This is not using the `from_point` as for the tests we will use the ID point and
+    // it would have caused a panic.
+    let p2_gadget = SonnyRistrettoPointGadget {
+        X: Scalar::from_bytes_mod_order(P2.0.X.to_bytes()).into(),
+        Y: Scalar::from_bytes_mod_order(P2.0.Y.to_bytes()).into(),
+        Z: Scalar::from_bytes_mod_order(P2.0.Z.to_bytes()).into(),
+        T: Scalar::from_bytes_mod_order(P2.0.T.to_bytes()).into(),
+    };
+    let p1_gadget = p1_gadget.conditionally_select(cond.into(), &mut prover);
+    // Assert P1 and P2 are equal after the conditional selection
+    p1_gadget.equals(&mut prover, p2_gadget);
+
+    // 3. Generate the proof.
+    let proof = prover.prove(bp_gens)?;
+    Ok((proof, vec![comm]))
+}
+
+fn cond_select_verify(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    P1: SonnyRistrettoPoint,
+    P2: SonnyRistrettoPoint,
+    commitments: Vec<CompressedRistretto>,
+    proof: R1CSProof,
+) -> Result<(), R1CSError> {
+    let mut transcript = Transcript::new(b"Conditional_Selection!");
+    // 1. Generate the Verifier
+    let mut verifier = Verifier::new(&mut transcript);
+    // 2. Commit high-level variables
+    let cond = verifier.commit(commitments[0]);
+
+    // Conditionally select the point or the identity
+    let p1_gadget = SonnyRistrettoPointGadget::from_point(P1, &mut verifier);
+    // This is not using the `from_point` as for the tests we will use the ID point and
+    // it would have caused a panic.
+    let p2_gadget = SonnyRistrettoPointGadget {
+        X: Scalar::from_bytes_mod_order(P2.0.X.to_bytes()).into(),
+        Y: Scalar::from_bytes_mod_order(P2.0.Y.to_bytes()).into(),
+        Z: Scalar::from_bytes_mod_order(P2.0.Z.to_bytes()).into(),
+        T: Scalar::from_bytes_mod_order(P2.0.T.to_bytes()).into(),
+    };
+    let p1_gadget = p1_gadget.conditionally_select(cond.into(), &mut verifier);
+    // Assert P1 and P2 are equal after the conditional selection
+    p1_gadget.equals(&mut verifier, p2_gadget);
+
+    verifier.verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())?;
+    Ok(())
+}
+
+fn cond_selection_roundtrip_helper(
+    P1: SonnyRistrettoPoint,
+    P2: SonnyRistrettoPoint,
+    selector: Scalar,
+) -> Result<(), R1CSError> {
+    // Common
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(64, 1);
+
+    let (proof, commitments) = cond_select_proof(&pc_gens, &bp_gens, P1, P2, selector)?;
+
+    cond_select_verify(&pc_gens, &bp_gens, P1, P2, commitments, proof)
+}
+
+#[test]
+fn conditionally_select_test() {
+    use zerocaf::traits::Identity;
+    let P1 = SonnyRistrettoPoint::new_random_point(&mut rand::thread_rng());
+    let ID = SonnyRistrettoPoint::identity();
+    let one_select = Scalar::one();
+    let zero_select = Scalar::zero();
+
+    // If we select one, we select P1 = P1
+    assert!(cond_selection_roundtrip_helper(P1, P1, one_select).is_ok());
+    assert!(cond_selection_roundtrip_helper(P1, P1, zero_select).is_err());
+    // If we select zero, we select P1 = ID
+    assert!(cond_selection_roundtrip_helper(P1, ID, zero_select).is_ok());
+    assert!(cond_selection_roundtrip_helper(P1, ID, one_select).is_err());
+}
+
 ///////////////// Commit points as prover & Verifier /////////////////
 
 #[test]
