@@ -17,7 +17,6 @@ pub fn nonzero_gadget(
             ))
         }))
         .unwrap();
-    println!("{:?}", cs.multipliers_len());
     // Var * Inv(Var) = 1
     let (_, _, should_be_one) = cs.multiply(inv_var.into(), var);
     let var_one: LinearCombination = Scalar::one().into();
@@ -73,8 +72,7 @@ pub fn verifier_commit_to_sonny_point(
 ) -> SonnyRistrettoPointGadget {
     assert_eq!(commitments.len(), 4);
     let vars: Vec<_> = commitments.iter().map(|V| verifier.commit(*V)).collect();
-    println!("{:?}", verifier.multipliers_len());
-    SonnyRistrettoPointGadget::from_LCs(
+    SonnyRistrettoPointGadget::from_lcs(
         vec![
             vars[0].into(),
             vars[1].into(),

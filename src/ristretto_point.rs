@@ -31,7 +31,7 @@ impl SonnyRistrettoPointGadget {
         gadget_p
     }
 
-    pub fn from_LCs(lcs: Vec<LinearCombination>, cs: &mut ConstraintSystem) -> Self {
+    pub fn from_lcs(lcs: Vec<LinearCombination>, cs: &mut ConstraintSystem) -> Self {
         assert!(lcs.len() == 4);
         let gadget = SonnyRistrettoPointGadget {
             X: lcs[0].clone(),
