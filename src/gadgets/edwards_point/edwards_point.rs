@@ -94,6 +94,51 @@ impl SonnyEdwardsPointGadget {
             T: T.into(),
         }
     }
+
+    /// Builds and adds to the CS the circuit that corresponds to the
+    /// doubling of a Twisted Edwards point in Extended Coordinates.
+    pub fn point_doubling_gadget(&self, cs: &mut dyn CS) -> SonnyEdwardsPointGadget {
+        // Point doubling impl
+        // A = p1_x²
+        // B = p1_y²
+        // C = 2*p1_z²
+        // D = a*A
+        // E = (p1_x + p1_y)² - A - B
+        // G = D + B
+        // F = G - C
+        // H = D - B
+        // X3 = E * F,  Y3 = G * H, Z3 = F * G, T3 = E * H
+        let a = LC::from(Scalar::from_bytes_mod_order(
+            zerocaf::constants::EDWARDS_A.to_bytes(),
+        ));
+        let (X, _, A) = cs.multiply(self.X.clone(), self.X.clone());
+        let (Y, _, B) = cs.multiply(self.Y.clone(), self.Y.clone());
+        let C = {
+            let z_sq = cs.multiply(self.Z.clone(), self.Z.clone()).2;
+            cs.multiply(Scalar::from(2u8).into(), z_sq.into()).2
+        };
+        let D = cs.multiply(a, A.into()).2;
+        let E = {
+            let p1xy_sq = cs.multiply(X + Y, X + Y).2;
+            let E = p1xy_sq - A - B;
+            cs.constrain(E.clone() - p1xy_sq + A + B);
+            E
+        };
+        let G = D + B;
+        cs.constrain(G.clone() - D - B);
+        let F = G.clone() - C;
+        cs.constrain(F.clone() - G.clone() + C);
+        let H = D - B;
+        cs.constrain(H.clone() - D + B);
+
+        SonnyEdwardsPointGadget {
+            X: LC::from(cs.multiply(E.clone(), F.clone()).2),
+            Y: LC::from(cs.multiply(G.clone(), H.clone()).2),
+            Z: LC::from(cs.multiply(F, G).2),
+            T: LC::from(cs.multiply(E, H).2),
+        }
+    }
+
     // self.x * other.z = other.x * self.z AND self.y * other.z == other.y * self.z
     pub fn equal(&self, other: &SonnyEdwardsPointGadget, cs: &mut dyn CS) {
         let (_, other_z, a) = cs.multiply(self.X.clone(), other.Z.clone());
