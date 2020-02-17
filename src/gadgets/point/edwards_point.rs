@@ -1,12 +1,9 @@
-use crate::util::nonzero_gadget;
+use crate::gadgets::boolean::binary_constrain_gadget;
 use bulletproofs::r1cs::{
-    ConstraintSystem as CS, LinearCombination as LC, R1CSError, RandomizedConstraintSystem,
-    Variable,
+    ConstraintSystem as CS, LinearCombination as LC, Prover, Variable, Verifier,
 };
 use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar};
 use zerocaf::edwards::EdwardsPoint as SonnyEdwardsPoint;
-use zerocaf::scalar::Scalar as SonnyScalar;
-use zerocaf::traits::ops::Double;
 
 #[derive(Clone)]
 // Represents a Sonny Edwards Point using Twisted Edwards Extended Coordinates
@@ -19,7 +16,7 @@ pub struct SonnyEdwardsPointGadget {
 
 impl SonnyEdwardsPointGadget {
     /// Creates LCs from the point coordinates, and returns a new `SonnyEdwardsPointGadget`.
-    pub fn from_point(point: &SonnyEdwardsPoint, cs: &mut dyn CS) -> SonnyEdwardsPointGadget {
+    pub fn from_point(point: &SonnyEdwardsPoint) -> SonnyEdwardsPointGadget {
         SonnyEdwardsPointGadget {
             X: LC::from(Scalar::from_bytes_mod_order(point.X.to_bytes())),
             Y: LC::from(Scalar::from_bytes_mod_order(point.Y.to_bytes())),
@@ -97,7 +94,7 @@ impl SonnyEdwardsPointGadget {
 
     /// Builds and adds to the CS the circuit that corresponds to the
     /// doubling of a Twisted Edwards point in Extended Coordinates.
-    pub fn point_doubling_gadget(&self, cs: &mut dyn CS) -> SonnyEdwardsPointGadget {
+    pub fn double(&self, cs: &mut dyn CS) -> SonnyEdwardsPointGadget {
         // Point doubling impl
         // A = p1_x²
         // B = p1_y²
@@ -139,6 +136,32 @@ impl SonnyEdwardsPointGadget {
         }
     }
 
+    /// Multiplies a SonnyEdwardsPointGadget by a SonnyScalar
+    pub fn scalar_mul(
+        point: SonnyEdwardsPointGadget,
+        mut sk: Vec<Variable>,
+        cs: &mut dyn CS,
+    ) -> SonnyEdwardsPointGadget {
+        // Generate Identity point without the ristretto constraint
+        let mut Q = SonnyEdwardsPointGadget {
+            X: LC::from(Scalar::zero()),
+            Y: LC::from(Scalar::one()),
+            Z: LC::from(Scalar::one()),
+            T: LC::from(Scalar::zero()),
+        };
+        // Compute pk'
+        sk.reverse();
+        for var in sk {
+            // Check that var is either `0` or `1`
+            binary_constrain_gadget(cs, var);
+            Q = Q.double(cs);
+            // If bit == 1 -> Q = Q + point
+            let point_or_id = point.conditionally_select(LC::from(var), cs);
+            Q = Q.add(&point_or_id, cs);
+        }
+        Q
+    }
+
     // self.x * other.z = other.x * self.z AND self.y * other.z == other.y * self.z
     pub fn equal(&self, other: &SonnyEdwardsPointGadget, cs: &mut dyn CS) {
         let (_, other_z, a) = cs.multiply(self.X.clone(), other.Z.clone());
@@ -148,5 +171,84 @@ impl SonnyEdwardsPointGadget {
         let (_, _, c) = cs.multiply(self.Y.clone(), other_z.into());
         let (_, _, d) = cs.multiply(other.Y.clone(), Z.into());
         cs.constrain(c - d);
+    }
+
+    /// If `bit = 0` assigns the Identity point coordinates (0, 1, 1, 0)
+    /// to the point, otherways, leaves the point as it is.
+    pub fn conditionally_select(&self, bit: LC, cs: &mut dyn CS) -> Self {
+        let one = LC::from(Scalar::one());
+
+        // x' = x if bit = 1
+        // x' = 0 if bit = 0 =>
+        // x' = x * bit
+        let (_, bit, x_prime) = cs.multiply(self.X.clone(), bit);
+
+        // y' = y if bit = 1
+        // y' = 1 if bit = 0 =>
+        // y' = bit * y + (1 - bit)
+        let y_prime = {
+            let (bit, _, bit_t_y) = cs.multiply(bit.into(), self.Y.clone());
+            let y_prime = bit_t_y + one.clone() - bit;
+            cs.constrain(y_prime.clone() - bit_t_y - one.clone() + bit);
+            y_prime
+        };
+
+        // z' = z if bit = 1
+        // z' = 1 if bit = 0 =>
+        // z' = bit * z + (1 - bit)
+        let z_prime = {
+            let (bit, _, bit_t_z) = cs.multiply(bit.into(), self.Z.clone());
+            let z_prime = bit_t_z + one.clone() - bit;
+            cs.constrain(z_prime.clone() - bit_t_z - one + bit);
+            z_prime
+        };
+
+        // t' = t if bit = 1
+        // t' = 0 if bit = 0 =>
+        // t' = t * bit
+        let (_, _, t_prime) = cs.multiply(self.T.clone(), bit.into());
+        SonnyEdwardsPointGadget {
+            X: x_prime.into(),
+            Y: y_prime.into(),
+            Z: z_prime.into(),
+            T: t_prime.into(),
+        }
+    }
+
+    pub fn prover_commit_to_sonny_edwards_point(
+        prover: &mut Prover,
+        p: &SonnyEdwardsPoint,
+    ) -> (SonnyEdwardsPointGadget, Vec<CompressedRistretto>) {
+        let scalars = vec![
+            Scalar::from_bytes_mod_order(p.X.to_bytes()),
+            Scalar::from_bytes_mod_order(p.Y.to_bytes()),
+            Scalar::from_bytes_mod_order(p.Z.to_bytes()),
+            Scalar::from_bytes_mod_order(p.T.to_bytes()),
+        ];
+        let (commitments, vars): (Vec<_>, Vec<_>) = scalars
+            .into_iter()
+            .map(|x| prover.commit(Scalar::from(x), Scalar::random(&mut rand::thread_rng())))
+            .unzip();
+        let gadget_p = SonnyEdwardsPointGadget {
+            X: vars[0].into(),
+            Y: vars[1].into(),
+            Z: vars[2].into(),
+            T: vars[3].into(),
+        };
+        (gadget_p, commitments)
+    }
+
+    pub fn verifier_commit_to_sonny_edwards_point(
+        verifier: &mut Verifier,
+        commitments: &[CompressedRistretto],
+    ) -> SonnyEdwardsPointGadget {
+        assert_eq!(commitments.len(), 4);
+        let vars: Vec<_> = commitments.iter().map(|V| verifier.commit(*V)).collect();
+        SonnyEdwardsPointGadget {
+            X: vars[0].into(),
+            Y: vars[1].into(),
+            Z: vars[2].into(),
+            T: vars[3].into(),
+        }
     }
 }
