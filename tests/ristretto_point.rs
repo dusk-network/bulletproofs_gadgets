@@ -9,7 +9,6 @@ use bulletproofs::r1cs::{
 };
 use bulletproofs::{BulletproofGens, PedersenGens};
 use bulletproofs_gadgets::gadgets::point::ristretto_point::SonnyRistrettoPointGadget;
-use bulletproofs_gadgets::util::*;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;

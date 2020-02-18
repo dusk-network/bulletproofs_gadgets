@@ -4,14 +4,17 @@ use bulletproofs::r1cs::{
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
-use zerocaf::field::FieldElement;
 
 /// Adds constraints to the CS which check that a Variable != 0
-pub fn nonzero_gadget(var: LC, var_assigment: Option<FieldElement>, cs: &mut dyn CS) {
+pub fn nonzero_gadget(var: LC, var_assigment: Option<Scalar>, cs: &mut dyn CS) {
     let (inv_var, _, _) = cs
         .allocate_multiplier(var_assigment.and_then(|q| {
+            let inverse = q.invert();
+            if inverse == Scalar::zero() {
+                panic!("Attempting to divide by 0 on an inversion op.")
+            }
             Some((
-                Scalar::from_bytes_mod_order(q.inverse().to_bytes()),
+                Scalar::from_bytes_mod_order(inverse.to_bytes()),
                 Scalar::one(),
             ))
         }))
@@ -30,7 +33,7 @@ mod scalar_tests {
     fn is_not_zero_proof(
         pc_gens: &PedersenGens,
         bp_gens: &BulletproofGens,
-        fe: FieldElement,
+        fe: Scalar,
     ) -> Result<R1CSProof, R1CSError> {
         let mut transcript = Transcript::new(b"Is zero?");
 
@@ -47,7 +50,7 @@ mod scalar_tests {
     fn is_not_zero_verify(
         pc_gens: &PedersenGens,
         bp_gens: &BulletproofGens,
-        fe: FieldElement,
+        fe: Scalar,
         proof: R1CSProof,
     ) -> Result<(), R1CSError> {
         let mut transcript = Transcript::new(b"Is zero?");
@@ -61,7 +64,7 @@ mod scalar_tests {
         Ok(())
     }
 
-    fn is_not_zero_roundtrip_helper(fe: FieldElement) -> Result<(), R1CSError> {
+    fn is_not_zero_roundtrip_helper(fe: Scalar) -> Result<(), R1CSError> {
         // Common
         let pc_gens = PedersenGens::default();
         let bp_gens = BulletproofGens::new(32, 1);
@@ -73,11 +76,9 @@ mod scalar_tests {
 
     #[test]
     fn is_not_zero() {
-        assert!(is_not_zero_roundtrip_helper(FieldElement::one()).is_ok());
-        assert!(
-            is_not_zero_roundtrip_helper(FieldElement::random(&mut rand::thread_rng())).is_ok()
-        );
+        assert!(is_not_zero_roundtrip_helper(Scalar::one()).is_ok());
+        assert!(is_not_zero_roundtrip_helper(Scalar::random(&mut rand::thread_rng())).is_ok());
         // The next line causes a `panic!` as it is expected to
-        //assert!(is_not_zero_roundtrip_helper(FieldElement::zero()).is_err());
+        //assert!(is_not_zero_roundtrip_helper(Scalar::zero()).is_err());
     }
 }

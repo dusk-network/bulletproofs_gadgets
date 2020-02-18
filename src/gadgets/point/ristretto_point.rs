@@ -62,11 +62,21 @@ impl SonnyRistrettoPointGadget {
             Some(point) => {
                 // Constrain X != 0
                 let point_8 = point.double().double().double();
-                nonzero_gadget(eight_p.X, Some(point_8.0.X), cs);
+                nonzero_gadget(
+                    eight_p.X,
+                    Some(Scalar::from_bytes_mod_order(point_8.0.X.to_bytes())),
+                    cs,
+                );
                 // Constrain (Y - Z) != 0
                 let y_m_z = eight_p.Y.clone() - eight_p.Z.clone();
                 cs.constrain(eight_p.Y.clone() - eight_p.Z - y_m_z.clone());
-                nonzero_gadget(y_m_z.into(), Some(point_8.0.Y - point_8.0.Z), cs);
+                nonzero_gadget(
+                    y_m_z.into(),
+                    Some(Scalar::from_bytes_mod_order(
+                        (point_8.0.Y - point_8.0.Z).to_bytes(),
+                    )),
+                    cs,
+                );
             }
             None => {
                 // Constrain X != 0
