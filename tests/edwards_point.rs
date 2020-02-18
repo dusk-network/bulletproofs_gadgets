@@ -345,3 +345,70 @@ fn point_committing_verify(
         .verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())
         .map_err(|_| R1CSError::VerificationError)
 }
+
+///////////////// Curve eq satisfy constraint /////////////////
+
+#[test]
+fn test_point_curve_eq_gadget() {
+    let A = SonnyEdwardsPoint::new_random_point(&mut rand::thread_rng());
+    let invalid_point = SonnyEdwardsPoint {
+        X: FieldElement::one(),
+        Y: FieldElement::one(),
+        Z: FieldElement::one(),
+        T: FieldElement::one(),
+    };
+    assert!(point_eq_roundtrip_helper(A).is_ok());
+    assert!(point_eq_roundtrip_helper(invalid_point).is_err());
+}
+
+fn point_eq_roundtrip_helper(p1: SonnyEdwardsPoint) -> Result<(), R1CSError> {
+    // Common
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(128, 1);
+
+    let proof = curve_eq_proof(&pc_gens, &bp_gens, &p1)?;
+
+    curve_eq_verify(&pc_gens, &bp_gens, &p1, proof)
+}
+
+// Proves that the point satisfies the curve equation
+fn curve_eq_proof(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    point: &SonnyEdwardsPoint,
+) -> Result<R1CSProof, R1CSError> {
+    let mut transcript = Transcript::new(b"PointDouble");
+
+    // 1. Create a prover
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+
+    // Create the point gadget
+    let p1_gadget = SonnyEdwardsPointGadget::from_point(point);
+    // Apply the curve_eq_satisfaction gadget
+    p1_gadget.satisfy_curve_eq(&mut prover);
+
+    // Make a proof
+    let proof = prover.prove(bp_gens)?;
+
+    Ok(proof)
+}
+fn curve_eq_verify(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    point: &SonnyEdwardsPoint,
+    proof: R1CSProof,
+) -> Result<(), R1CSError> {
+    let mut transcript = Transcript::new(b"PointDouble");
+
+    // Create the verifier
+    let mut verifier = Verifier::new(&mut transcript);
+
+    // Create the point gadget
+    let p1_gadget = SonnyEdwardsPointGadget::from_point(point);
+    // Apply the curve_eq_satisfaction gadget
+    p1_gadget.satisfy_curve_eq(&mut verifier);
+
+    verifier
+        .verify(&proof, &pc_gens, &bp_gens, &mut rand::thread_rng())
+        .map_err(|_| R1CSError::VerificationError)
+}

@@ -173,6 +173,43 @@ impl SonnyEdwardsPointGadget {
         cs.constrain(c - d);
     }
 
+    /// Adds constraints to ensure that the point satisfies the Sonny curve eq
+    /// by verifying `(aX^{2}+Y^{2})Z^{2} = Z^{4}+d(X^{2})Y^{2}`
+    pub fn satisfy_curve_eq(&self, cs: &mut dyn CS) {
+        let a = LC::from(Scalar::from_bytes_mod_order(
+            zerocaf::constants::EDWARDS_A.to_bytes(),
+        ));
+        let d = LC::from(Scalar::from_bytes_mod_order(
+            zerocaf::constants::EDWARDS_D.to_bytes(),
+        ));
+        // Compute X²
+        let (_, _, x_sq) = cs.multiply(self.X.clone(), self.X.clone());
+        // Compute a * X²
+        let (_, _, aX_sq) = cs.multiply(a.into(), x_sq.into());
+        // Compute Y²
+        let (_, _, y_sq) = cs.multiply(self.Y.clone(), self.Y.clone());
+        // Compute a*X² + Y²
+        let ax_sq_y_sq = aX_sq + y_sq.clone();
+        cs.constrain(ax_sq_y_sq.clone() - aX_sq - y_sq);
+        // Compute Z²
+        let (_, _, z_sq) = cs.multiply(self.Z.clone(), self.Z.clone());
+        // Compute left assigment
+        let (_, _, left_assigm) = cs.multiply(ax_sq_y_sq, z_sq.into());
+
+        // Compute Z⁴
+        let (_, _, z_s_s) = cs.multiply(z_sq.into(), z_sq.into());
+        // Compute d*(X)²
+        let (_, _, dx_sq) = cs.multiply(d, x_sq.into());
+        // Compute d*(X²) * Y²
+        let (_, _, dx_sq_y_sq) = cs.multiply(dx_sq.into(), y_sq.into());
+        // Compute right assigment
+        let right_assigm = z_s_s + dx_sq_y_sq;
+        cs.constrain(right_assigm.clone() - z_s_s - dx_sq_y_sq);
+
+        // Constrain left assigment = right assigment
+        cs.constrain(right_assigm - left_assigm);
+    }
+
     /// If `bit = 0` assigns the Identity point coordinates (0, 1, 1, 0)
     /// to the point, otherways, leaves the point as it is.
     pub fn conditionally_select(&self, bit: LC, cs: &mut dyn CS) -> Self {
