@@ -1,4 +1,7 @@
-use crate::{ristretto_point::SonnyRistrettoPointGadget, util::binary_constrain_gadget};
+use crate::{
+    gadgets::boolean::binary_constrain_gadget,
+    gadgets::point::ristretto_point::SonnyRistrettoPointGadget,
+};
 use bulletproofs::{
     r1cs::{ConstraintSystem, LinearCombination, Prover, R1CSError, R1CSProof, Variable, Verifier},
     BulletproofGens, PedersenGens,

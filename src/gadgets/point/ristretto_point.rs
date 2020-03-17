@@ -1,4 +1,4 @@
-use crate::util::nonzero_gadget;
+use crate::gadgets::scalar::nonzero_gadget;
 use bulletproofs::r1cs::{
     ConstraintSystem, LinearCombination, R1CSError, RandomizedConstraintSystem, Variable,
 };
@@ -62,11 +62,21 @@ impl SonnyRistrettoPointGadget {
             Some(point) => {
                 // Constrain X != 0
                 let point_8 = point.double().double().double();
-                nonzero_gadget(eight_p.X, Some(point_8.0.X), cs);
+                nonzero_gadget(
+                    eight_p.X,
+                    Some(Scalar::from_bytes_mod_order(point_8.0.X.to_bytes())),
+                    cs,
+                );
                 // Constrain (Y - Z) != 0
                 let y_m_z = eight_p.Y.clone() - eight_p.Z.clone();
                 cs.constrain(eight_p.Y.clone() - eight_p.Z - y_m_z.clone());
-                nonzero_gadget(y_m_z.into(), Some(point_8.0.Y - point_8.0.Z), cs);
+                nonzero_gadget(
+                    y_m_z.into(),
+                    Some(Scalar::from_bytes_mod_order(
+                        (point_8.0.Y - point_8.0.Z).to_bytes(),
+                    )),
+                    cs,
+                );
             }
             None => {
                 // Constrain X != 0
@@ -162,7 +172,6 @@ impl SonnyRistrettoPointGadget {
         let (_, _, x1y2) = cs.multiply(self.X.clone(), other.Y);
         let (_, _, y1x2) = cs.multiply(self.Y.clone(), other.X);
         cs.constrain(x1y2 - y1x2);
-        println!("{:?}", cs.multipliers_len());
     }
 
     pub fn double(&self, cs: &mut dyn ConstraintSystem) -> SonnyRistrettoPointGadget {
